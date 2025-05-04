@@ -92,10 +92,13 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
       }
     } else {
         // console.log("Puter library not loaded yet or window not available.");
-        // Retry after a short delay
-        setTimeout(checkAuthStatus, 100);
+        // Retry after a short delay if Puter object not yet available
+        // Avoid infinite loops if Puter script fails to load
+        if (!puterLoaded) { // Only retry if not loaded yet
+            setTimeout(checkAuthStatus, 200); // Increased delay slightly
+        }
     }
-  }, []);
+  }, [puterLoaded]); // Added puterLoaded dependency
 
 
   useEffect(() => {
@@ -108,27 +111,41 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
   }, [pathname]);
 
   const handleSignIn = async () => {
-    if (!puterLoaded) {
+    if (!puterLoaded || typeof window === 'undefined' || !window.puter?.auth?.signIn) {
       toast({ variant: "destructive", title: "Error", description: "Authentication service not ready. Please wait a moment and try again." });
+      console.error("Puter auth.signIn is not available.");
       return;
     }
     try {
+      // This call correctly initiates the Puter auth flow (usually via popup)
       await window.puter.auth.signIn();
-      // Re-check status after sign-in attempt
+      // Re-check status immediately after potential sign-in
       await checkAuthStatus();
-      toast({ title: "Signed In", description: "Successfully signed in." });
+      // Conditional toast based on updated status, although checkAuthStatus handles state
+      // setTimeout(async () => {
+      //    const stillSignedIn = await window.puter.auth.isSignedIn();
+      //    if (stillSignedIn) {
+      //      toast({ title: "Signed In", description: "Successfully signed in." });
+      //    }
+      // }, 500); // Short delay to allow state update
     } catch (error) {
       console.error("Puter sign in error:", error);
-      // The promise rejects if the user cancels, so only show error for actual issues.
+      // The promise rejects if the user cancels the dialog.
+      // Only show error toast for actual failures.
       if (error instanceof Error && error.message !== "User cancelled the dialog.") {
-         toast({ variant: "destructive", title: "Sign In Failed", description: "An error occurred during sign in." });
+         toast({ variant: "destructive", title: "Sign In Failed", description: "An error occurred during sign in. Please try again." });
+      } else if (!(error instanceof Error)) {
+          // Handle cases where the error might not be an Error object
+           toast({ variant: "destructive", title: "Sign In Failed", description: "An unexpected error occurred during sign in." });
       }
     }
   };
 
+
   const handleSignOut = async () => {
-    if (!puterLoaded) {
+    if (!puterLoaded || typeof window === 'undefined' || !window.puter?.auth?.signOut) {
       toast({ variant: "destructive", title: "Error", description: "Authentication service not ready." });
+      console.error("Puter auth.signOut is not available.");
       return;
     }
     try {
@@ -141,6 +158,7 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
       toast({ variant: "destructive", title: "Sign Out Failed", description: "An error occurred during sign out." });
     }
   };
+
 
   const handleNavigation = (href: string) => {
     router.push(href);
