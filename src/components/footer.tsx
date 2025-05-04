@@ -66,8 +66,9 @@ export function Footer() {
                     </ul>
                     </PopoverContent>
                 </Popover>
-                . | JR Comhrá AI &copy; {currentYear}
+                . | JR Comhrá AI &copy; {currentYear} | V. 0.0.1
             </p>
          </footer>
     );
 }
+
