@@ -5,17 +5,18 @@ import { Footer } from './footer'; // Import the new Footer component
 interface PageLayoutProps {
   children: React.ReactNode;
   currentPageName?: string;
-  // Removed showSignIn prop
 }
 
 export function PageLayout({ children, currentPageName }: PageLayoutProps) {
   return (
+    // Ensure the root layout div takes full height and uses flex column
     <div className="flex flex-col min-h-screen">
-      <AppHeader currentPageName={currentPageName} /> {/* Removed showSignIn prop */}
-      <main className="flex-grow container mx-auto p-4 md:p-6">
+      <AppHeader currentPageName={currentPageName} />
+      {/* Make the main content area grow and allow its children to take full height */}
+      <main className="flex-grow container mx-auto p-4 md:p-6 flex flex-col overflow-hidden">
         {children}
       </main>
-       <Footer /> {/* Use the new Footer component */}
+       <Footer /> {/* Footer remains sticky at the bottom */}
     </div>
   );
 }
