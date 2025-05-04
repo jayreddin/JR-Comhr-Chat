@@ -30,7 +30,7 @@ export default function Home() {
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-background p-4">
       <header className="mb-12 text-center">
-        <h1 className="text-5xl font-bold text-primary mb-2">OmniSwitch</h1>
+        <h1 className="text-5xl font-bold text-primary mb-2">JR Comhrá AI</h1>
         <p className="text-lg text-muted-foreground">Your versatile AI companion.</p>
       </header>
       <main className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 max-w-4xl w-full">
