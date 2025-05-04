@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 export default function MorePage() {
   return (
-    <PageLayout currentPageName="More">
+    <PageLayout currentPageName="More"> {/* Removed showSignIn prop */}
        <div className="flex flex-col items-center justify-center h-full">
          <Card className="w-full max-w-2xl">
            <CardHeader>

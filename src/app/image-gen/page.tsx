@@ -7,7 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 
 export default function ImageGenPage() {
   return (
-    <PageLayout currentPageName="Image Gen">
+    <PageLayout currentPageName="Image Gen"> {/* Removed showSignIn prop */}
       <div className="flex flex-col items-center justify-center h-full">
          <Card className="w-full max-w-2xl">
            <CardHeader>

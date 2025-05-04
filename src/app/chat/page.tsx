@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 export default function ChatPage() {
   return (
-    <PageLayout currentPageName="Chat" showSignIn={true}>
+    <PageLayout currentPageName="Chat"> {/* Removed showSignIn prop */}
       <div className="flex flex-col items-center justify-center h-full">
          <Card className="w-full max-w-2xl">
            <CardHeader>

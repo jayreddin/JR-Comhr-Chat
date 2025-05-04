@@ -6,7 +6,7 @@ import { Upload } from 'lucide-react';
 
 export default function VisionPage() {
   return (
-    <PageLayout currentPageName="Vision">
+    <PageLayout currentPageName="Vision"> {/* Removed showSignIn prop */}
        <div className="flex flex-col items-center justify-center h-full">
          <Card className="w-full max-w-2xl">
            <CardHeader>
