@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
@@ -30,8 +31,7 @@ const providerLinks = [
 ];
 
 interface FooterProps {
-  onSendMessage?: (message: string) => void; // Optional prop to handle sending messages
-  // Add other props needed for control icons later
+  onSendMessage?: (message: string) => void; // Make prop optional to avoid errors on non-chat pages
 }
 
 export function Footer({ onSendMessage }: FooterProps) {
@@ -60,47 +60,48 @@ export function Footer({ onSendMessage }: FooterProps) {
                             interimTranscript += event.results[i][0].transcript;
                         }
                     }
-                     // Update input value, prioritizing final transcript but showing interim
-                    setInputValue(prev => (finalTranscript.trim() ? prev + finalTranscript : prev.split(' ').slice(0, -1).join(' ') + ' ' + interimTranscript));
-                    // If final results are received, potentially append them? Or replace? Let's append for now.
-                     // This logic might need refinement based on desired UX.
-                    // Using interim results directly might feel more responsive.
-                    // setInputValue(prev => {
-                    //      const lastWordIsInterim = prev.split(' ').pop() === interimTranscript.trim().split(' ').pop();
-                    //      const base = finalTranscript.trim() ? prev + finalTranscript + ' ' : prev;
-                    //      return base + interimTranscript;
-                    // });
-                    setInputValue(finalTranscript + interimTranscript); // Keep updating with the latest
+                    // Update input value with combined final and interim results
+                    setInputValue(finalTranscript + interimTranscript);
                 };
 
                 recognitionRef.current.onerror = (event: any) => {
                     console.error('Speech recognition error:', event.error);
-                    toast({ variant: "destructive", title: "Speech Recognition Error", description: event.error });
+                     let description = "An unknown error occurred.";
+                    if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+                        description = "Microphone access denied or service not allowed. Please check browser permissions.";
+                        setHasMicPermission(false); // Explicitly set permission state
+                    } else if (event.error === 'no-speech') {
+                        description = "No speech detected. Please try speaking again.";
+                    } else {
+                        description = event.error;
+                    }
+                    toast({ variant: "destructive", title: "Speech Recognition Error", description });
                     stopRecording(); // Stop recording on error
                 };
 
                 recognitionRef.current.onend = () => {
-                    // Restart listening if it ended unexpectedly while recording is supposed to be active
-                    // But only if explicitly stopped by user action (isRecording state)
-                    // if (isRecording) {
-                    //     console.log("Recognition ended, restarting...");
-                    //     startRecordingLogic(); // Potentially restart
-                    // }
                      console.log("Speech recognition ended.");
-                     // Don't automatically restart here, let user control it.
-                     // If we want continuous listening across pauses, handle it differently.
-                     // For now, onend means stop unless user explicitly starts again.
-                     // setIsRecording(false); // Mark as stopped if it ends naturally
+                     // Only set isRecording to false if it wasn't manually stopped
+                     // This check might be redundant if stopRecording always sets it
+                     if (isRecording) {
+                         // setIsRecording(false); // Let stopRecording handle this state update
+                     }
                 };
 
             } else {
                 console.warn('Speech Recognition API not supported in this browser.');
+                 // Set permission to false if API is not supported
+                setHasMicPermission(false);
             }
         }
-    }, []); // Run only once on mount
+    }, [isRecording]); // Re-run effect if isRecording changes? Maybe not needed.
 
 
     const requestMicPermission = useCallback(async () => {
+        if (hasMicPermission === false) { // If already denied, don't ask again
+             toast({ variant: "destructive", title: "Microphone Access Denied", description: "Please enable microphone permissions in your browser settings." });
+            return false;
+        }
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
             toast({ variant: "destructive", title: "Mic Not Supported", description: "Your browser doesn't support microphone access." });
             setHasMicPermission(false);
@@ -117,20 +118,20 @@ export function Footer({ onSendMessage }: FooterProps) {
             setHasMicPermission(false);
             return false;
         }
-    }, []);
+    }, [hasMicPermission]);
 
 
     const startRecordingLogic = () => {
-        if (recognitionRef.current) {
+        if (recognitionRef.current && !isRecording) { // Prevent multiple starts
             try {
                 recognitionRef.current.start();
                 setIsRecording(true);
                  console.log("Speech recognition started.");
             } catch (e: any) {
-                 // Handle error if recognition is already started
+                 // Handle error if recognition is already started (should be prevented by isRecording check)
                 if (e.name === 'InvalidStateError') {
-                    console.log("Recognition already started.");
-                    // Maybe stop and restart? For now, just ensure state is correct.
+                    console.warn("Recognition attempted to start while already active.");
+                    // Ensure state is correct if somehow out of sync
                     setIsRecording(true);
                 } else {
                     console.error("Could not start speech recognition:", e);
@@ -142,26 +143,30 @@ export function Footer({ onSendMessage }: FooterProps) {
     };
 
     const stopRecording = () => {
-        if (recognitionRef.current) {
+        if (recognitionRef.current && isRecording) { // Only stop if currently recording
             try {
                 recognitionRef.current.stop();
                 console.log("Speech recognition stopped.");
             } catch (e: any) {
                  if (e.name === 'InvalidStateError') {
-                    console.log("Recognition already stopped or never started.");
+                    console.warn("Recognition attempted to stop when not active.");
                  } else {
                     console.error("Error stopping recognition:", e);
                  }
             } finally {
                  setIsRecording(false); // Ensure state is set to false regardless of errors
             }
-
         } else {
-             setIsRecording(false); // Ensure state is false if recognitionRef is null
+             setIsRecording(false); // Ensure state is false if recognitionRef is null or not recording
         }
     };
 
     const handleMicClick = async () => {
+        if (!recognitionRef.current) {
+             toast({ variant: "destructive", title: "Not Supported", description: "Speech recognition is not supported in this browser." });
+             return;
+        }
+
         if (isRecording) {
             stopRecording();
         } else {
@@ -170,24 +175,32 @@ export function Footer({ onSendMessage }: FooterProps) {
                 permissionGranted = await requestMicPermission();
             }
 
-            if (permissionGranted) {
+            if (permissionGranted === true) { // Check explicit true
                 startRecordingLogic();
             }
-            // If permissionGranted is false, do nothing (toast shown in requestMicPermission)
+            // If permissionGranted is false or null (after failed request), do nothing (toast shown elsewhere)
         }
     };
 
     const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         setInputValue(event.target.value);
+         if (isRecording && event.target.value !== '') {
+            // Optional: Stop recording if the user starts typing manually
+            // stopRecording();
+        }
     };
 
     const handleSend = () => {
-        if (inputValue.trim() && onSendMessage) {
+        // Check if onSendMessage function is provided before calling it
+        if (onSendMessage && inputValue.trim()) {
             onSendMessage(inputValue.trim());
             setInputValue(''); // Clear input after sending
             if (isRecording) { // Stop recording if user sends manually
                 stopRecording();
             }
+        } else if (!onSendMessage) {
+             console.warn("Send button clicked, but no onSendMessage handler provided for this page.");
+             toast({ variant: "default", title: "Action Not Available", description: "Sending messages is not enabled on this page." });
         }
     };
 
@@ -203,43 +216,52 @@ export function Footer({ onSendMessage }: FooterProps) {
             <div className="container max-w-screen-2xl px-4 md:px-6 py-2 space-y-2">
 
                 {/* Control Icons Bar (Placeholder) */}
-                <div className="flex items-center justify-start space-x-2 h-8">
-                    <Button variant="ghost" size="icon" aria-label="Attach file">
-                        <Paperclip className="h-5 w-5 text-muted-foreground" />
-                    </Button>
-                    {/* Add more control icons here as needed */}
-                </div>
+                 {/* Only show attach button if onSendMessage is available (likely chat page) */}
+                 {onSendMessage && (
+                    <div className="flex items-center justify-start space-x-2 h-8">
+                        <Button variant="ghost" size="icon" aria-label="Attach file">
+                            <Paperclip className="h-5 w-5 text-muted-foreground" />
+                        </Button>
+                        {/* Add more control icons here as needed */}
+                    </div>
+                 )}
 
-                {/* Input Row */}
-                <div className="flex items-center space-x-2">
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={handleMicClick}
-                        aria-label={isRecording ? "Stop recording" : "Start recording"}
-                        className={cn(isRecording && "text-red-500 animate-pulse")} // Apply red color and pulse when recording
-                        disabled={hasMicPermission === false} // Disable if permission explicitly denied
-                    >
-                        {isRecording ? <Square className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
-                    </Button>
-                    <Input
-                        type="text"
-                        placeholder="Type your message..."
-                        value={inputValue}
-                        onChange={handleInputChange}
-                        onKeyDown={handleKeyDown}
-                        className="flex-grow"
-                        aria-label="Message input"
-                    />
-                    <Button
-                        size="icon"
-                        onClick={handleSend}
-                        disabled={!inputValue.trim()} // Disable if input is empty
-                        aria-label="Send message"
-                    >
-                        <Send className="h-5 w-5" />
-                    </Button>
-                </div>
+
+                {/* Input Row - Only show if onSendMessage is provided */}
+                 {onSendMessage && (
+                    <div className="flex items-center space-x-2">
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={handleMicClick}
+                            aria-label={isRecording ? "Stop recording" : "Start recording"}
+                            className={cn(
+                                isRecording && "text-red-500 animate-pulse",
+                                hasMicPermission === false && "opacity-50 cursor-not-allowed" // Style explicitly when denied
+                            )}
+                            disabled={hasMicPermission === false} // Disable if permission explicitly denied or API not supported
+                        >
+                            {isRecording ? <Square className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
+                        </Button>
+                        <Input
+                            type="text"
+                            placeholder="Type your message..."
+                            value={inputValue}
+                            onChange={handleInputChange}
+                            onKeyDown={handleKeyDown}
+                            className="flex-grow"
+                            aria-label="Message input"
+                        />
+                        <Button
+                            size="icon"
+                            onClick={handleSend}
+                            disabled={!inputValue.trim() || !onSendMessage} // Disable if input empty or no send handler
+                            aria-label="Send message"
+                        >
+                            <Send className="h-5 w-5" />
+                        </Button>
+                    </div>
+                 )}
 
                 {/* Credits and Links */}
                 <div className="text-center text-xs text-muted-foreground pt-2">

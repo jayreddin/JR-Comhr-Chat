@@ -1,8 +1,10 @@
+
 import type {Metadata} from 'next';
 import {Geist, Geist_Mono} from 'next/font/google';
 import './globals.css';
 import { Toaster } from "@/components/ui/toaster"
 import Script from 'next/script'; // Import next/script
+import { AppStateProvider } from '@/context/app-state-context'; // Import the provider
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -27,8 +29,10 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-        {children}
-        <Toaster />
+         <AppStateProvider> {/* Wrap children with the provider */}
+           {children}
+           <Toaster />
+         </AppStateProvider>
         {/* Add Puter.js script */}
         <Script src="https://js.puter.com/v2/" strategy="afterInteractive" />
       </body>

@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -38,6 +39,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useAppState } from '@/context/app-state-context'; // Import the context hook
 
 // Define Puter types locally to avoid TS errors if library isn't loaded server-side
 declare global {
@@ -85,28 +87,32 @@ const modelProviders = [
     models: ["deepseek-chat", "deepseek-reasoner"],
   },
   {
+    // Provider name mapping for Puter.js (use 'google' for Gemini models)
     provider: "Gemini",
-    models: ["gemini-2.0-flash", "gemini-1.5-flash", "google/gemma-2-27b-it"],
+    models: ["google/gemini-2.0-flash-lite-001", "google/gemini-flash-1.5", "google/gemma-2-27b-it"], // Use Puter.js compatible names
   },
   {
+    // Provider name mapping for Puter.js (use 'meta-llama' prefix)
     provider: "Meta",
     models: [
-      "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
-      "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
-      "meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo",
+      "meta-llama/llama-3.1-8b-instruct",
+      "meta-llama/llama-3.1-70b-instruct",
+      "meta-llama/llama-3.1-405b-instruct",
     ],
   },
   {
+    // Provider name mapping for Puter.js
     provider: "Mistral",
     models: ["mistral-large-latest", "pixtral-large-latest", "codestral-latest"],
   },
   {
+    // Provider name mapping for Puter.js (use 'x-ai' prefix)
     provider: "XAI",
-    models: ["grok-beta"],
+    models: ["x-ai/grok-3-beta"], // Use Puter.js compatible name
   },
 ];
 
-const defaultModel = modelProviders.find(p => p.defaultModel)?.defaultModel || modelProviders[0].models[0];
+// const defaultModel = modelProviders.find(p => p.defaultModel)?.defaultModel || modelProviders[0].models[0]; // Default model now comes from context
 
 interface AppHeaderProps {
   currentPageName?: string; // Optional prop for current page name override
@@ -115,13 +121,15 @@ interface AppHeaderProps {
 export function AppHeader({ currentPageName }: AppHeaderProps) {
   const router = useRouter();
   const pathname = usePathname();
+  const { selectedModel, setSelectedModel } = useAppState(); // Use context
   const [activePage, setActivePage] = useState<NavItem | null>(null);
   const [isSignedIn, setIsSignedIn] = useState<boolean>(false);
   const [username, setUsername] = useState<string | null>(null);
   const [puterLoaded, setPuterLoaded] = useState<boolean>(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isPageSwitcherOpen, setIsPageSwitcherOpen] = useState(false);
-  const [selectedModel, setSelectedModel] = useState<string>(defaultModel);
+  // Removed local selectedModel state: const [selectedModel, setSelectedModel] = useState<string>(defaultModel);
+
 
   const checkAuthStatus = useCallback(async () => {
     if (typeof window !== 'undefined' && window.puter) {
@@ -237,6 +245,27 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
   const pageTitle = currentPageName || activePage?.name || "JR Comhrá AI";
   const isChatPage = pathname.startsWith('/chat');
 
+  // Function to map internal model names to Puter.js compatible names
+  // This might be more complex depending on the exact mapping required.
+  const getPuterModelName = (internalName: string): string => {
+     // Simple example: if it already contains '/', assume it's Puter compatible
+     if (internalName.includes('/')) {
+         return internalName;
+     }
+     // Add more specific mappings if needed
+     switch (internalName) {
+         case 'claude-3-7-sonnet': return 'anthropic/claude-3.7-sonnet';
+         case 'claude-3-5-sonnet': return 'anthropic/claude-3.5-sonnet';
+         // Add other necessary mappings for Anthropic, DeepSeek, etc.
+         // Map OpenAI models correctly
+         case 'gpt-4o-mini': return 'openai/gpt-4o-mini';
+         case 'gpt-4o': return 'openai/gpt-4o';
+         // ... map all OpenAI models ...
+         default: return internalName; // Fallback
+     }
+  };
+
+
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-14 items-center justify-between max-w-screen-2xl px-4 md:px-6">
@@ -269,7 +298,8 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="text-lg font-semibold text-primary hover:text-accent transition-colors px-2">
-                  {selectedModel}
+                  {/* Display the model name nicely, potentially removing the provider prefix */}
+                  {selectedModel.split('/').pop()}
                   <ChevronDown className="ml-2 h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
@@ -280,7 +310,8 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
                         <DropdownMenuLabel>{provider.provider}</DropdownMenuLabel>
                         {provider.models.map(model => (
                             <DropdownMenuRadioItem key={model} value={model}>
-                            {model}
+                            {/* Display model name nicely */}
+                            {model.split('/').pop()}
                             </DropdownMenuRadioItem>
                         ))}
                         </DropdownMenuGroup>
@@ -393,7 +424,8 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
                         </CardHeader>
                         <CardContent className="space-y-4">
                             <p>Select models, adjust temperature, etc.</p>
-                             {/* Add model settings components here - Could link to chat page dropdown? */}
+                             {/* Could potentially display the model dropdown here too */}
+                             {/* Or add other model-specific settings */}
                         </CardContent>
                         </Card>
                     </TabsContent>
@@ -404,7 +436,7 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
                             <CardDescription>Expert configurations.</CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-4">
-                            <p>API keys, system prompts, etc.</p>
+                            <p>API keys (if applicable), system prompts, etc.</p>
                             {/* Add advanced settings components here */}
                         </CardContent>
                         </Card>
