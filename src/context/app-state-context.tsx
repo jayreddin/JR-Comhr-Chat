@@ -59,7 +59,7 @@ const defaultModelProviders = [
     },
     {
       provider: "XAI",
-      models: ["x-ai/grok-3-beta"],
+      models: ["x-ai/grok-3-beta"], // Renamed from grok-beta
     },
   ];
 
@@ -71,15 +71,15 @@ interface AppStateContextProps {
   setSelectedModel: Dispatch<SetStateAction<string>>;
   activeDefaultModels: string[]; // Track active default models
   setActiveDefaultModels: Dispatch<SetStateAction<string[]>>;
-  activeOpenRouterModels: string[]; // Track active OpenRouter models
+  activeOpenRouterModels: string[]; // Track active OpenRouter models (WITH prefix)
   setActiveOpenRouterModels: Dispatch<SetStateAction<string[]>>;
   openRouterActive: boolean;
   setOpenRouterActive: Dispatch<SetStateAction<boolean>>;
-  availableOpenRouterModels: string[]; // List of available OR models
+  availableOpenRouterModels: string[]; // List of available OR models (WITH prefix)
   setAvailableOpenRouterModels: Dispatch<SetStateAction<string[]>>;
   isLoadingOpenRouterModels: boolean;
   setIsLoadingOpenRouterModels: Dispatch<SetStateAction<boolean>>;
-  enabledModels: string[]; // Derived list of all enabled models
+  enabledModels: string[]; // Derived list of all enabled models (WITH prefix for OR)
 }
 
 // Create the context with a default value (or null)
@@ -103,7 +103,11 @@ export const AppStateProvider: React.FC<AppStateProviderProps> = ({ children }) 
 
     // Derive the list of all enabled models using useMemo
     const enabledModels = useMemo(() => {
-        return [...activeDefaultModels, ...activeOpenRouterModels].sort((a, b) => a.localeCompare(b)); // Sort alphabetically
+        // Ensure OpenRouter models in the list have the prefix
+        const prefixedActiveOpenRouter = activeOpenRouterModels.map(m =>
+            m.startsWith('openrouter:') ? m : `openrouter:${m}`
+        );
+        return [...activeDefaultModels, ...prefixedActiveOpenRouter].sort((a, b) => a.localeCompare(b)); // Sort alphabetically
     }, [activeDefaultModels, activeOpenRouterModels]);
 
      // Effect to load settings from localStorage on initial mount
@@ -115,17 +119,30 @@ export const AppStateProvider: React.FC<AppStateProviderProps> = ({ children }) 
                     const parsedSettings = JSON.parse(savedSettings);
                     // Load model selections into context state
                     setActiveDefaultModels(parsedSettings.activeModels || allDefaultModels);
-                    setActiveOpenRouterModels(parsedSettings.activeOpenRouterModels || []);
+                    // Ensure loaded OpenRouter models have the prefix
+                    setActiveOpenRouterModels(
+                        (parsedSettings.activeOpenRouterModels || []).map((m: string) =>
+                            m.startsWith('openrouter:') ? m : `openrouter:${m}`
+                        )
+                    );
                     setOpenRouterActive(parsedSettings.openRouterActive || false);
-                    // Potentially load selectedModel as well if saved and still enabled
+
                     // Check if saved selectedModel is valid before setting
                     const savedSelected = parsedSettings.selectedModel;
-                    const currentlyEnabled = [...(parsedSettings.activeModels || allDefaultModels), ...(parsedSettings.activeOpenRouterModels || [])];
+                    // Derive currently enabled models based on loaded settings (ensure OR models have prefix)
+                    const loadedActiveORModelsPrefixed = (parsedSettings.activeOpenRouterModels || []).map((m: string) =>
+                        m.startsWith('openrouter:') ? m : `openrouter:${m}`
+                    );
+                    const currentlyEnabled = [...(parsedSettings.activeModels || allDefaultModels), ...loadedActiveORModelsPrefixed];
+
                     if (savedSelected && currentlyEnabled.includes(savedSelected)) {
                         setSelectedModel(savedSelected);
+                    } else if (currentlyEnabled.length > 0) {
+                        // If saved model is invalid or not present, set to first available enabled model
+                        setSelectedModel(currentlyEnabled[0]);
                     } else {
-                        // If saved model is invalid, set to first available or default
-                         setSelectedModel(currentlyEnabled[0] || initialSelectedModel);
+                         // Fallback to initial default if no models are enabled
+                        setSelectedModel(initialSelectedModel);
                     }
 
                     // Apply UI settings directly (theme, text size, chat mode are handled in Footer now)
@@ -157,7 +174,9 @@ export const AppStateProvider: React.FC<AppStateProviderProps> = ({ children }) 
             setSelectedModel(enabledModels[0]);
         } else if (enabledModels.length === 0 && selectedModel !== initialSelectedModel) {
              // If no models are enabled, fallback to the initial default
-             setSelectedModel(initialSelectedModel);
+             // Ensure the fallback exists in the default list, otherwise use a hardcoded known good default
+             const fallbackExists = allDefaultModels.includes(initialSelectedModel);
+             setSelectedModel(fallbackExists ? initialSelectedModel : (allDefaultModels[0] || "gpt-4o-mini"));
         }
     }, [enabledModels, selectedModel]); // Depend on the derived list and the current selection
 
@@ -190,15 +209,15 @@ export const AppStateProvider: React.FC<AppStateProviderProps> = ({ children }) 
         setSelectedModel,
         activeDefaultModels,
         setActiveDefaultModels,
-        activeOpenRouterModels,
+        activeOpenRouterModels, // Already prefixed
         setActiveOpenRouterModels,
         openRouterActive,
         setOpenRouterActive,
-        availableOpenRouterModels,
+        availableOpenRouterModels, // Already prefixed
         setAvailableOpenRouterModels,
         isLoadingOpenRouterModels,
         setIsLoadingOpenRouterModels,
-        enabledModels, // Provide the derived list
+        enabledModels, // Provide the derived list (OR models prefixed)
     };
 
   return (

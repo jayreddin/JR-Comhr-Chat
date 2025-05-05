@@ -88,7 +88,12 @@ const groupModelsByProvider = (enabledModels: string[]) => {
         let found = false;
         for (const providerGroup of grouped) {
             // Check if model belongs to a known default provider based on prefix or known list
-            if (
+            // Handle OpenRouter prefix explicitly
+             if (providerGroup.provider === "OpenRouter" && model.startsWith('openrouter:')) {
+                providerGroup.models.push(model);
+                found = true;
+                break;
+            } else if (
                 (providerGroup.provider === "OpenAI" && (model.startsWith('gpt') || model.startsWith('o'))) ||
                 (providerGroup.provider === "Anthropic" && model.startsWith('claude')) ||
                 (providerGroup.provider === "DeepSeek" && model.startsWith('deepseek')) ||
@@ -97,21 +102,34 @@ const groupModelsByProvider = (enabledModels: string[]) => {
                 (providerGroup.provider === "Mistral" && (model.startsWith('mistral') || model.startsWith('pixtral') || model.startsWith('codestral'))) ||
                 (providerGroup.provider === "XAI" && model.startsWith('x-ai/'))
             ) {
-                providerGroup.models.push(model);
-                found = true;
-                break;
+                // Exclude models that might accidentally match a default prefix but are OpenRouter
+                if (!model.startsWith('openrouter:')) {
+                     providerGroup.models.push(model);
+                     found = true;
+                     break;
+                }
             }
         }
-        // If not found in default providers, assume it's an OpenRouter model (or unknown)
-        if (!found) {
+        // If not found in default providers AND doesn't have openrouter: prefix, try assigning to OpenRouter anyway
+        // This is a fallback, ideally context provides the correct prefix.
+        if (!found && !model.startsWith('openrouter:')) {
             const openRouterProvider = grouped.find(p => p.provider === "OpenRouter");
             if (openRouterProvider) {
-                openRouterProvider.models.push(model);
+                // Add the prefix for consistency internally? Or leave as is?
+                // Adding prefix might be safer for differentiation.
+                openRouterProvider.models.push(`openrouter:${model}`);
+                console.warn(`Model "${model}" added to OpenRouter group without prefix.`);
             } else {
-                // Handle potentially unknown models if needed
-                console.warn(`Model "${model}" doesn't match known provider prefixes.`);
-                // Optionally add to a generic "Other" group
+                console.warn(`Model "${model}" doesn't match known providers and OpenRouter group not found.`);
             }
+        } else if (!found && model.startsWith('openrouter:')) {
+             // Should have been found, but handle case where OpenRouter group might be missing initially
+             const openRouterProvider = grouped.find(p => p.provider === "OpenRouter");
+             if (openRouterProvider) {
+                openRouterProvider.models.push(model);
+             } else {
+                 console.warn(`Model "${model}" has OpenRouter prefix but group not found.`);
+             }
         }
     });
 
@@ -283,7 +301,12 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
 
   // Function to get display name (short version without provider prefix)
   const getModelDisplayName = (modelName: string): string => {
-     return modelName.split('/').pop() || modelName;
+     // Remove potential 'openrouter:' prefix for display
+     const nameWithoutPrefix = modelName.startsWith('openrouter:')
+        ? modelName.substring('openrouter:'.length)
+        : modelName;
+     // Then take the part after the last '/'
+     return nameWithoutPrefix.split('/').pop() || nameWithoutPrefix;
   }
 
 

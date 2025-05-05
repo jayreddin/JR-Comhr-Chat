@@ -108,7 +108,7 @@ const modelProviders = [
     },
     {
       provider: "XAI",
-      models: ["x-ai/grok-3-beta"],
+      models: ["x-ai/grok-3-beta"], // Renamed from grok-beta
     },
   ];
 
@@ -445,7 +445,12 @@ export function Footer({ onSendMessage }: FooterProps) {
                     // Note: AppStateProvider already loads these, potentially causing double-setting.
                     // Consider removing context updates here if AppStateProvider handles initial load.
                     setActiveDefaultModels(parsedSettings.activeModels || modelProviders.flatMap(p => p.models));
-                    setActiveOpenRouterModels(parsedSettings.activeOpenRouterModels || []);
+                    // Ensure OpenRouter models loaded from settings include the prefix
+                    setActiveOpenRouterModels(
+                         (parsedSettings.activeOpenRouterModels || []).map((m: string) =>
+                             m.startsWith('openrouter:') ? m : `openrouter:${m}`
+                         )
+                     );
                     setOpenRouterActive(parsedSettings.openRouterActive || false);
 
                      // Apply loaded settings immediately
@@ -479,10 +484,10 @@ export function Footer({ onSendMessage }: FooterProps) {
                         throw new Error(`HTTP error! status: ${response.status}`);
                     }
                     const data = await response.json();
-                    // Extract model IDs from the 'data' array
-                    const modelIds = data?.data?.map((model: any) => model.id) || [];
-                    setAvailableOpenRouterModels(modelIds); // Use context setter
-                    console.log("Fetched OpenRouter Models:", modelIds);
+                    // Extract model IDs and prepend 'openrouter:' prefix
+                    const modelIdsWithPrefix = data?.data?.map((model: any) => `openrouter:${model.id}`) || [];
+                    setAvailableOpenRouterModels(modelIdsWithPrefix); // Use context setter with prefixed models
+                    console.log("Fetched OpenRouter Models:", modelIdsWithPrefix);
                 } catch (error) {
                     console.error("Failed to fetch OpenRouter models:", error);
                     toast({ variant: "destructive", title: "Fetch Error", description: "Could not load OpenRouter models. Please try again later." });
@@ -501,7 +506,10 @@ export function Footer({ onSendMessage }: FooterProps) {
 
      // Model Selection Handlers (now using context setters)
     const handleModelToggle = (modelName: string, providerType: 'default' | 'openrouter') => {
-        const isActive = providerType === 'default' ? activeDefaultModels.includes(modelName) : activeOpenRouterModels.includes(modelName);
+        // Always use the modelName directly as it should be correct (with prefix if OR)
+        const isActive = providerType === 'default'
+            ? activeDefaultModels.includes(modelName)
+            : activeOpenRouterModels.includes(modelName);
         const setActiveFunc = providerType === 'default' ? setActiveDefaultModels : setActiveOpenRouterModels;
 
         setActiveFunc(prev =>
@@ -512,7 +520,7 @@ export function Footer({ onSendMessage }: FooterProps) {
     const handleSelectAllModels = (providerType: 'default' | 'openrouter') => {
         const allModels = providerType === 'default'
             ? modelProviders.flatMap(p => p.models)
-            : availableOpenRouterModels; // Use fetched OR models from context
+            : availableOpenRouterModels; // Use fetched OR models from context (already prefixed)
         const setActiveFunc = providerType === 'default' ? setActiveDefaultModels : setActiveOpenRouterModels;
         setActiveFunc(allModels);
     };
@@ -687,7 +695,7 @@ export function Footer({ onSendMessage }: FooterProps) {
                                                                  // Determine which list the model belongs to and toggle it using context setters
                                                                  if (modelProviders.some(p => p.models.includes(model))) {
                                                                      handleModelToggle(model, 'default');
-                                                                 } else if (availableOpenRouterModels.includes(model)) {
+                                                                 } else if (availableOpenRouterModels.includes(model)) { // Should have prefix
                                                                      handleModelToggle(model, 'openrouter');
                                                                  }
                                                              }}
@@ -727,7 +735,7 @@ export function Footer({ onSendMessage }: FooterProps) {
                                                                     ) : availableOpenRouterModels.length > 0 ? (
                                                                         <ModelSelectionBox
                                                                             title="OpenRouter Models"
-                                                                            // Use the fetched models from context
+                                                                            // Use the fetched models from context (already prefixed)
                                                                             providers={[{ provider: "OpenRouter", models: availableOpenRouterModels }]}
                                                                             activeModels={activeOpenRouterModels} // Use context state
                                                                             onToggle={(model) => handleModelToggle(model, 'openrouter')}
@@ -864,9 +872,17 @@ function ModelSelectionBox({ title, providers, activeModels, onToggle, onSelectA
 
     // Get the total number of models across all providers in this box
     const totalModelsInBox = providers.reduce((acc, provider) => acc + provider.models.length, 0);
-    const allModelsSelected = activeModels.length >= totalModelsInBox && providers.every(p => p.models.every(m => activeModels.includes(m)));
+    const allModelsSelected = totalModelsInBox > 0 && providers.every(p => p.models.every(m => activeModels.includes(m)));
     // Check if no models *from these specific providers* are selected
     const noModelsSelected = providers.every(p => p.models.every(m => !activeModels.includes(m)));
+
+    // Function to get display name (short version without provider/OpenRouter prefix)
+    const getModelDisplayName = (modelName: string): string => {
+         const nameWithoutPrefix = modelName.startsWith('openrouter:')
+            ? modelName.substring('openrouter:'.length)
+            : modelName;
+         return nameWithoutPrefix.split('/').pop() || nameWithoutPrefix;
+    }
 
 
     return (
@@ -900,7 +916,7 @@ function ModelSelectionBox({ title, providers, activeModels, onToggle, onSelectA
                                                     onCheckedChange={() => onToggle(model)} // Directly uses the passed handler
                                                 />
                                                 <Label htmlFor={`${title}-${model}`} className="text-xs font-normal cursor-pointer"> {/* Added cursor-pointer */}
-                                                    {model.split('/').pop()} {/* Show short name */}
+                                                    {getModelDisplayName(model)} {/* Show short name */}
                                                 </Label>
                                             </div>
                                         ))}
@@ -926,6 +942,14 @@ function EnabledModelsBox({ allEnabledModels, onToggle }: EnabledModelsBoxProps)
      // Use context to get the detailed lists needed for grouping
      const { activeDefaultModels, activeOpenRouterModels, availableOpenRouterModels } = useAppState();
 
+    // Function to get display name (short version without provider/OpenRouter prefix)
+    const getModelDisplayName = (modelName: string): string => {
+         const nameWithoutPrefix = modelName.startsWith('openrouter:')
+            ? modelName.substring('openrouter:'.length)
+            : modelName;
+         return nameWithoutPrefix.split('/').pop() || nameWithoutPrefix;
+    }
+
     // Group models by provider for display
     const groupedEnabledModels = useMemo(() => {
         const groups: { [provider: string]: string[] } = {};
@@ -933,20 +957,17 @@ function EnabledModelsBox({ allEnabledModels, onToggle }: EnabledModelsBoxProps)
         allEnabledModels.forEach(model => {
             let providerName = "Unknown";
 
+            // Check OpenRouter first due to prefix
+            if (model.startsWith('openrouter:')) {
+                providerName = "OpenRouter";
+            }
             // Find provider from default list
-            const defaultProvider = modelProviders.find(p => p.models.includes(model));
-            if (defaultProvider) {
-                providerName = defaultProvider.provider;
+            else {
+                 const defaultProvider = modelProviders.find(p => p.models.includes(model));
+                 if (defaultProvider) {
+                    providerName = defaultProvider.provider;
+                 }
             }
-            // Check if it's an *active* OpenRouter model
-            else if (activeOpenRouterModels.includes(model)) {
-                 providerName = "OpenRouter";
-             }
-            // Check if it's an *available* OpenRouter model (if active check fails)
-            else if (availableOpenRouterModels.includes(model)) {
-                 providerName = "OpenRouter"; // Still group under OR if somehow enabled but not in active list
-            }
-
 
             if (!groups[providerName]) {
                 groups[providerName] = [];
@@ -958,11 +979,11 @@ function EnabledModelsBox({ allEnabledModels, onToggle }: EnabledModelsBoxProps)
             .sort(([providerA], [providerB]) => providerA.localeCompare(providerB))
             .map(([provider, models]) => ({
                 provider,
-                models: models.sort((a, b) => (a.split('/').pop() || a).localeCompare(b.split('/').pop() || b)) // Sort models by display name
+                models: models.sort((a, b) => getModelDisplayName(a).localeCompare(getModelDisplayName(b))) // Sort models by display name
             }));
 
     // Include all dependencies that affect grouping
-    }, [allEnabledModels, activeOpenRouterModels, availableOpenRouterModels]);
+    }, [allEnabledModels, activeDefaultModels, activeOpenRouterModels, availableOpenRouterModels]); // Added activeDefaultModels
 
     return (
         <Card className={cn(isMinimized && "overflow-hidden")}>
@@ -995,7 +1016,7 @@ function EnabledModelsBox({ allEnabledModels, onToggle }: EnabledModelsBoxProps)
                                                         onCheckedChange={() => onToggle(model)} // Unchecking disables it
                                                     />
                                                     <Label htmlFor={`enabled-${model}`} className="text-xs font-normal cursor-pointer">
-                                                        {model.split('/').pop()}
+                                                        {getModelDisplayName(model)}
                                                     </Label>
                                                 </div>
                                             ))}
@@ -1010,4 +1031,3 @@ function EnabledModelsBox({ allEnabledModels, onToggle }: EnabledModelsBoxProps)
         </Card>
     );
 }
-

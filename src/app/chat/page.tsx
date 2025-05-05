@@ -136,8 +136,11 @@ export default function ChatPage() {
 
 
         puterModelName = selectedModel; // Assign here
+
          // Standardize model names for Puter.js
-         if (puterModelName.startsWith('gpt') || puterModelName.startsWith('o')) {
+         if (puterModelName.startsWith('openrouter:')) {
+            // Keep the openrouter: prefix as is
+         } else if (puterModelName.startsWith('gpt') || puterModelName.startsWith('o')) {
              puterModelName = `openai/${puterModelName}`;
          } else if (puterModelName.startsWith('claude')) {
              puterModelName = `anthropic/${puterModelName}`;
@@ -155,7 +158,16 @@ export default function ChatPage() {
          } else if (puterModelName.startsWith('meta-llama/')) {
              // Keep meta-llama prefix
          } else {
-            console.warn(`Model name ${selectedModel} does not have a recognized prefix for Puter.js. Using as is.`);
+            // If none of the known prefixes match, assume it might be an OpenRouter model
+            // or another provider Puter recognizes directly or via OpenRouter fallback.
+            // Check if it was originally an OpenRouter model that lost its prefix somehow?
+            // This case shouldn't happen if AppState context provides the full name.
+            // If it's not an OR model and has no prefix, try prepending 'openrouter:' as a guess.
+            // This might be fragile. A safer approach is ensuring models always have correct context.
+            console.warn(`Model name ${selectedModel} lacks a recognized prefix. Assuming OpenRouter.`);
+            puterModelName = `openrouter:${puterModelName}`;
+            // Alternatively, just send as-is:
+            // console.warn(`Model name ${selectedModel} lacks a recognized prefix. Sending as-is.`);
          }
 
         console.log(`Using model for Puter: ${puterModelName}`);
@@ -174,14 +186,16 @@ export default function ChatPage() {
             // Refined logic to extract text from various stream formats
             if (part?.text) { // Standard or simple text part (OpenAI, Gemini)
                 chunkText = part.text;
-            } else if (part?.message?.content) { // Nested structure (like Claude, Deepseek, Grok)
+            } else if (part?.message?.content) { // Nested structure (like Claude, Deepseek, Grok, OpenRouter)
                  if (Array.isArray(part.message.content) && part.message.content[0]?.text) {
                      chunkText = part.message.content[0].text; // Claude array structure
                  } else if (typeof part.message.content === 'string') {
-                    chunkText = part.message.content; // Simple string content (e.g., Grok, Deepseek)
+                    chunkText = part.message.content; // Simple string content (e.g., Grok, Deepseek, some OpenRouter)
                  }
             } else if (typeof part === 'string') { // The part itself is the text chunk (less common now)
                 chunkText = part;
+            } else if (part?.choices?.[0]?.delta?.content) { // OpenRouter specific stream structure sometimes
+                 chunkText = part.choices[0].delta.content;
             }
 
           if (chunkText) {
@@ -212,7 +226,7 @@ export default function ChatPage() {
              errorMsg = error.message;
              // Use the puterModelName variable defined outside the try block
              if (error.message.includes("Model not found") || error.message.includes("404")) {
-                 errorMsg = `Model '${puterModelName}' not found or incompatible with Puter.js. Please try another model or check the selected model name.`;
+                 errorMsg = `Model '${puterModelName}' not found or incompatible with Puter.js. Please check the selected model name.`;
              } else if (error.message.includes("quota") || error.message.includes("limit")) {
                  errorMsg = "You may have exceeded your usage limit for this model.";
              } else if (error.message.includes("auth") || error.message.includes("401")) {
