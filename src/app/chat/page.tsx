@@ -129,17 +129,10 @@ export default function ChatPage() {
    }, []); // Empty dependency array ensures this runs only on mount
 
 
-   // Function to scroll to the bottom of the chat
-   const scrollToBottom = () => {
-     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-   };
-
-   // Scroll to bottom whenever messages change
+   // Scroll to top whenever messages change or loading starts/stops
    useEffect(() => {
-       // Scroll to top (since it's reversed) when new messages arrive or loading starts/stops
        if (scrollAreaRef.current) {
-            // Use scrollTop = 0 for flex-col-reverse to go to the "top" (which is visually the bottom/newest)
-            scrollAreaRef.current.scrollTop = 0;
+            scrollAreaRef.current.scrollTop = 0; // Scroll to the top (newest message)
        }
    }, [messages, isLoading]); // Trigger on message/loading changes
 
@@ -154,33 +147,29 @@ export default function ChatPage() {
     if (messageToResend.sender === 'user') {
         console.log(`Resending message: ${messageId}`);
         // Find the AI response immediately following this user message, if any
-        // Since messages are reversed, the AI response is *before* the user message
-        const previousMessage = messages[messageIndex - 1];
+        // Since messages are newest first, the AI response is *after* the user message in the array
+        const nextMessage = messages[messageIndex + 1];
         let messagesWithoutOldResponse = [...messages];
-        if (previousMessage && previousMessage.sender === 'ai') {
-             // Simple removal - assumes AI response is directly before.
-             messagesWithoutOldResponse = messages.filter((_, idx) => idx !== messageIndex - 1);
+        if (nextMessage && nextMessage.sender === 'ai') {
+             messagesWithoutOldResponse = messages.filter((_, idx) => idx !== messageIndex + 1);
         }
         setMessages(messagesWithoutOldResponse); // Update state before sending
-        // Re-trigger send logic - Check if there was a file attached originally
-        // For simplicity now, we won't resend the file automatically. Need File object access again.
         handleSendMessage(messageToResend.text, messageToResend.fileInfo); // Pass fileInfo if it exists
     } else if (messageToResend.sender === 'ai') {
         // Logic to regenerate AI response
-        // Find the succeeding user message (which is chronologically *after* the AI message,
-        // but appears *after* the AI message in the reversed array)
-        const succeedingUserMessage = messages[messageIndex + 1];
-        if (succeedingUserMessage && succeedingUserMessage.sender === 'user') {
+        // Find the preceding user message (chronologically *before* the AI message,
+        // which appears *before* the AI message in the newest-first array)
+        const precedingUserMessage = messages[messageIndex - 1];
+        if (precedingUserMessage && precedingUserMessage.sender === 'user') {
             console.log(`Requesting regeneration for AI message: ${messageId}`);
              // Remove the AI message we are regenerating
             const messagesWithoutCurrentAi = messages.filter((_, idx) => idx !== messageIndex);
             setMessages(messagesWithoutCurrentAi);
             // Resend the user message that prompted this AI response
             // Pass fileInfo if it exists on the user message
-            handleSendMessage(succeedingUserMessage.text, succeedingUserMessage.fileInfo);
+            handleSendMessage(precedingUserMessage.text, precedingUserMessage.fileInfo);
         } else {
-             // If it's the very first message (AI greeting maybe?) or no user message follows
-             // This logic might need adjustment based on desired behavior for regenerating greetings etc.
+             // If it's the very first message (AI greeting maybe?) or no user message precedes
              toast({ variant: "destructive", title: "Regenerate Failed", description: "Cannot regenerate response without the corresponding user message." });
         }
     }
@@ -210,6 +199,7 @@ export default function ChatPage() {
                      const sessionDataJSON = localStorage.getItem(currentSessionId);
                      if (sessionDataJSON) {
                          const sessionData: SavedChatSession = JSON.parse(sessionDataJSON);
+                         // Update messages *within* the session data
                          sessionData.messages = sessionData.messages.filter(msg => msg.id !== messageId);
                          localStorage.setItem(currentSessionId, JSON.stringify(sessionData));
                          console.log(`Message ${messageId} deleted from saved session ${currentSessionId}`);
@@ -272,7 +262,7 @@ export default function ChatPage() {
               if (existingSessionInfo && !existingSessionInfo.name.startsWith("Chat ")) {
                    sessionName = existingSessionInfo.name;
               } else {
-                   // Try to generate a better preview name if possible
+                   // Try to generate a better preview name if possible (find first *user* message chronologically)
                     const firstUserMessage = [...messages].reverse().find(msg => msg.sender === 'user');
                    sessionName = firstUserMessage
                        ? `${firstUserMessage.text.substring(0, 30)}...`
@@ -285,8 +275,9 @@ export default function ChatPage() {
             id: currentSessionId,
             name: sessionName,
             timestamp: Date.now(), // Always update timestamp on save/new
-            // Ensure message previews (Data URIs) and content are saved
-            messages: messages.map(msg => ({
+            // Store messages in chronological order (oldest first) in localStorage
+            // even though we display them newest first.
+            messages: [...messages].reverse().map(msg => ({
                 ...msg,
                 // Keep fileInfo, including content and previewUrl if present
             }))
@@ -326,17 +317,6 @@ export default function ChatPage() {
     setMessages([]);
     setNonImageFileWarningShown(false); // Reset warning flag
 
-    // 3. Optional: Reset any other relevant state (e.g., input field is handled by Footer)
-    // Optional: Set a default 'new chat' placeholder message?
-    /*
-    setMessages([{
-        id: `ai-${Date.now()}`,
-        sender: 'ai',
-        name: 'System',
-        text: 'Started a new chat.',
-        timestamp: Date.now()
-    }]);
-    */
   };
 
 
@@ -348,8 +328,8 @@ export default function ChatPage() {
           const sessionDataJSON = localStorage.getItem(sessionId);
           if (sessionDataJSON) {
               const sessionData: SavedChatSession = JSON.parse(sessionDataJSON);
-              // Load messages. Restore previews and content if saved.
-              setMessages(sessionData.messages);
+              // Load messages and reverse them for display (newest first)
+              setMessages([...sessionData.messages].reverse());
                setNonImageFileWarningShown(false); // Reset warning flag on load
               if (showToast) {
                  toast({ title: "Chat Restored", description: `Loaded session "${sessionData.name}".` });
@@ -557,10 +537,10 @@ export default function ChatPage() {
          // Basic check: Assume models containing 'vision', 'gpt-4o', 'claude-3', 'gemini', 'qwen', 'phi-4' support images
          const modelSupportsVision = puterModelName.includes('vision')
             || puterModelName.includes('gpt-4o')
-            || puterModelName.includes('claude-3')
-            || puterModelName.includes('gemini')
-            || puterModelName.includes('qwen') // Added Qwen
-            || puterModelName.includes('phi-4'); // Added Phi-4
+            || puterModelName.includes('claude-3') // Claude 3 models support vision
+            || puterModelName.includes('gemini')   // Gemini models support vision
+            || puterModelName.includes('qwen')     // Qwen-VL models support vision
+            || puterModelName.includes('phi-4');   // Phi-4 models support vision
 
 
          if (fileDataUri && fileInfoForMessage?.type.startsWith('image/') && modelSupportsVision) {
@@ -657,7 +637,8 @@ export default function ChatPage() {
 
         // Log the error *unless* it's a user cancellation
         if (!isAuthCancelled) {
-             console.error("Puter AI chat error:", error); // Log the raw error object
+             // Log the full error object for better diagnostics
+             console.error("Puter AI chat error:", JSON.stringify(error, null, 2)); // Log the full error object
         } else {
              console.log("Puter authentication cancelled by user during chat attempt.");
         }
@@ -737,14 +718,14 @@ export default function ChatPage() {
     >
       {/* Main container for the chat display */}
       <div className="flex flex-col h-full flex-grow overflow-hidden">
-        {/* Chat Display Area - Reverse order */}
+        {/* Chat Display Area - Newest first */}
         <ScrollArea className="flex-grow h-full border rounded-md p-4 bg-secondary/30" viewportRef={scrollAreaRef}>
-           {/* Use flex-col-reverse for newest at top */}
-           <div className="flex flex-col-reverse space-y-4 space-y-reverse">
-                {/* Div to mark the end of messages for scrolling */}
+           {/* Use flex-col for newest at top */}
+           <div className="flex flex-col space-y-4">
+                {/* Div to mark the end of messages for scrolling (now top effectively) */}
                 <div ref={messagesEndRef} />
 
-             {/* Map through messages (reverse order due to flex-col-reverse) */}
+             {/* Map through messages (newest first) */}
              {messages.map((message, index) => (
                <div key={message.id} className="p-2">
                  <div
@@ -831,3 +812,5 @@ export default function ChatPage() {
     </PageLayout>
   );
 }
+
+    
