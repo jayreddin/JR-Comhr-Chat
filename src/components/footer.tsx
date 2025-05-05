@@ -145,7 +145,7 @@ export function Footer({ onSendMessage }: FooterProps) {
     }, []); // Run only once on mount
 
     const requestMicPermission = useCallback(async () => {
-        if (hasMicPermission !== null) return; // Already checked or denied
+        if (hasMicPermission !== null) return hasMicPermission; // Return existing status if already checked/set
 
         if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
             try {
@@ -165,6 +165,7 @@ export function Footer({ onSendMessage }: FooterProps) {
         }
     }, [hasMicPermission]);
 
+
     const startRecordingLogic = () => {
         if (recognitionRef.current && !isRecording) {
             try {
@@ -173,10 +174,17 @@ export function Footer({ onSendMessage }: FooterProps) {
                 console.log("Speech recognition started.");
             } catch (error) {
                 console.error("Error starting speech recognition:", error);
+                 // Check if error is due to already started state (less common with checks but possible)
+                 if ((error as DOMException).name === 'InvalidStateError') {
+                    console.warn("Recognition already started?");
+                 } else {
+                    toast({ variant: "destructive", title: "Mic Error", description: "Could not start microphone." });
+                 }
                 setIsRecording(false);
             }
         }
     };
+
 
     const stopRecording = () => {
         if (recognitionRef.current && isRecording) {
@@ -185,8 +193,12 @@ export function Footer({ onSendMessage }: FooterProps) {
                  console.log("Speech recognition stopped.");
             } catch (error) {
                  console.error("Error stopping speech recognition:", error);
+                 // Check if error is due to not running state
+                 if ((error as DOMException).name === 'InvalidStateError') {
+                     console.warn("Recognition wasn't running?");
+                 }
             } finally {
-                // Ensure state is updated even if stop throws error
+                // Ensure state is updated even if stop throws error or wasn't running
                  setIsRecording(false);
             }
         }
@@ -196,15 +208,21 @@ export function Footer({ onSendMessage }: FooterProps) {
         if (isRecording) {
             stopRecording();
         } else {
+             // Request permission first. If granted (or already granted), start recording.
+             // If denied (or already denied), show toast.
+             // If pending (null), wait for user action.
              const permissionGranted = await requestMicPermission();
-             if (permissionGranted) {
+
+             if (permissionGranted === true) {
                  startRecordingLogic();
-             } else if (hasMicPermission === null) {
-                 // If permission is still null after request, it means it's likely the first time and pending
-                 // Or the browser doesn't support it. Error toast should have shown.
+             } else if (permissionGranted === false) {
+                  // Toast is already shown in requestMicPermission
+                 console.log("Mic permission denied.");
+             } else {
+                 // Permission status is still null (likely browser doesn't support or user hasn't responded yet)
+                 // A toast should have been shown by requestMicPermission if not supported.
                  console.log("Mic permission status pending or not supported.");
              }
-             // If permission denied (false), the requestMicPermission shows the toast
         }
     };
     // --- End Speech Recognition Logic ---
@@ -220,13 +238,19 @@ export function Footer({ onSendMessage }: FooterProps) {
              // Combine text and file info if needed
             let messageToSend = inputValue.trim();
              if (uploadedFile) {
-                // You might want to prepend info about the file, or handle it separately
-                messageToSend = `[File: ${uploadedFile.name}]\n${messageToSend}`;
+                // TODO: Decide how to represent the file for the onSendMessage handler.
+                // Maybe pass an object { text: messageToSend, file: uploadedFile }
+                // For now, just prepend filename. The actual file data needs separate handling.
+                messageToSend = `[File attached: ${uploadedFile.name}]\n${messageToSend}`;
+                console.log("Sending message with attached file:", uploadedFile.name);
              }
             onSendMessage(messageToSend);
             setInputValue('');
             setUploadedFile(null); // Clear file after sending
             setFilePreview(null);
+            if (fileInputRef.current) {
+                fileInputRef.current.value = ""; // Reset file input visually
+            }
             if (isRecording) {
                 stopRecording();
             }
@@ -235,6 +259,7 @@ export function Footer({ onSendMessage }: FooterProps) {
              toast({ variant: "default", title: "Action Not Available", description: "Sending messages is not enabled here." });
         }
     };
+
 
     const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
         if (event.key === 'Enter' && !event.shiftKey) {
@@ -250,7 +275,7 @@ export function Footer({ onSendMessage }: FooterProps) {
         console.log("Starting new chat session...");
         // 1. Save current messages to local storage (implement saving logic)
         // 2. Clear current messages state (if using state managed by parent, call a prop)
-        // setMessages([]); // Example if state is local
+        // setMessages([]); // Example if state is local - this should be handled by parent via prop
         // 3. Generate new session ID, update history state
         toast({ title: "New Chat", description: "Functionality not fully implemented." });
     };
@@ -258,7 +283,7 @@ export function Footer({ onSendMessage }: FooterProps) {
     const handleRestoreChat = (sessionId: string) => {
         console.log(`Restoring chat session: ${sessionId}`);
         // 1. Fetch messages for sessionId from local storage
-        // 2. Update messages state
+        // 2. Update messages state (call parent prop)
         setIsHistoryOpen(false); // Close popover
         toast({ title: "Restore Chat", description: "Functionality not fully implemented." });
     };
@@ -292,24 +317,34 @@ export function Footer({ onSendMessage }: FooterProps) {
     const handleAddFileToChat = () => {
         if (uploadedFile) {
             // Logic to represent the file in the input or context
-            // For now, just close the dialog. The file state is already set.
+            // The file state is already set, file preview shows above input.
+            // Just close the dialog.
             setIsFileUploadOpen(false);
             toast({ title: "File Ready", description: `${uploadedFile.name} is ready to be sent with your message.` });
         }
     };
 
+
     const handleSaveSettings = () => {
         console.log("Saving chat settings:", { theme, textSize, chatMode, activeModels, openRouterActive, activeOpenRouterModels });
-        // 1. Apply theme (e.g., add/remove 'dark' class to body or html)
+        // 1. Apply theme
          document.documentElement.classList.toggle('dark', theme === 'dark');
-         // Apply text size (e.g., set CSS variable or style on root element)
+         // Apply text size
         document.documentElement.style.setProperty('--chat-text-size', `${textSize}px`);
-        // Apply chat mode (e.g., add class for styling)
+        // Apply chat mode (if CSS is set up for it)
+        // document.body.dataset.chatMode = chatMode;
+
         // 2. Save settings to local storage
-        localStorage.setItem('chatSettings', JSON.stringify({ theme, textSize, chatMode, activeModels, openRouterActive, activeOpenRouterModels }));
-        setIsChatSettingsOpen(false); // Close dialog
-        toast({ title: "Settings Saved", description: "Chat settings have been updated." });
+        try {
+            localStorage.setItem('chatSettings', JSON.stringify({ theme, textSize, chatMode, activeModels, openRouterActive, activeOpenRouterModels }));
+            setIsChatSettingsOpen(false); // Close dialog
+            toast({ title: "Settings Saved", description: "Chat settings have been updated." });
+        } catch (e) {
+            console.error("Failed to save chat settings to localStorage", e);
+            toast({ variant: "destructive", title: "Save Error", description: "Could not save settings." });
+        }
     };
+
 
      // Load settings on mount
     useEffect(() => {
@@ -327,15 +362,19 @@ export function Footer({ onSendMessage }: FooterProps) {
                  // Apply loaded settings immediately
                 document.documentElement.classList.toggle('dark', parsedSettings.theme === 'dark');
                 document.documentElement.style.setProperty('--chat-text-size', `${parsedSettings.textSize || 14}px`);
+                 // Apply chat mode if needed
+                 // document.body.dataset.chatMode = parsedSettings.chatMode || 'normal';
+
 
             } catch (e) {
                 console.error("Failed to parse saved chat settings", e);
             }
         }
-        // Load chat history placeholder
+        // Load chat history placeholder (replace with actual loading logic)
         setChatHistory([
             { id: '1', name: 'Chat about Next.js', timestamp: Date.now() - 3600000 },
             { id: '2', name: 'Puter.js Integration', timestamp: Date.now() - 7200000 },
+            { id: '3', name: 'Tailwind Styling', timestamp: Date.now() - 10800000 },
         ]);
     }, []);
 
@@ -368,20 +407,23 @@ export function Footer({ onSendMessage }: FooterProps) {
 
                 {/* Control Icons Bar - Only show if onSendMessage is available (likely chat page) */}
                  {onSendMessage && (
-                    <div className="flex items-center justify-start space-x-1 h-8">
+                    // Center the control icons horizontally
+                    <div className="flex items-center justify-center space-x-1 h-8">
                          {/* New Chat Button */}
                         <Button variant="ghost" size="icon" onClick={handleNewChat} aria-label="New Chat">
                             <PlusCircle className="h-5 w-5 text-muted-foreground" />
                         </Button>
 
                          {/* Chat History Popover */}
+                         {/* Use align="center" to center the popover content */}
                         <Popover open={isHistoryOpen} onOpenChange={setIsHistoryOpen}>
                              <PopoverTrigger asChild>
                                 <Button variant="ghost" size="icon" aria-label="Chat History">
                                     <History className="h-5 w-5 text-muted-foreground" />
                                 </Button>
                             </PopoverTrigger>
-                            <PopoverContent className="w-80">
+                             {/* Add align="center" to PopoverContent */}
+                            <PopoverContent className="w-80" align="center">
                                 <div className="space-y-2">
                                     <h4 className="font-medium leading-none">Chat History</h4>
                                     <p className="text-sm text-muted-foreground">Select a previous chat session.</p>
@@ -401,36 +443,40 @@ export function Footer({ onSendMessage }: FooterProps) {
                         </Popover>
 
                         {/* File Upload Dialog */}
+                        {/* DialogContent already centers by default */}
                         <Dialog open={isFileUploadOpen} onOpenChange={setIsFileUploadOpen}>
                             <DialogTrigger asChild>
                                 <Button variant="ghost" size="icon" aria-label="Upload File">
                                     <Upload className="h-5 w-5 text-muted-foreground" />
                                 </Button>
                             </DialogTrigger>
-                            <DialogContent>
+                            <DialogContent className="sm:max-w-[425px]"> {/* Optional: Adjust max width if needed */}
                                 <DialogHeader>
                                     <DialogTitle>Upload File</DialogTitle>
                                 </DialogHeader>
-                                <div className="space-y-4">
+                                <div className="space-y-4 py-4">
                                      {filePreview && (
-                                        <div className="mt-4 border rounded p-2 max-h-60 overflow-auto relative group">
-                                             <Button variant="ghost" size="icon" onClick={handleRemoveFile} className="absolute top-1 right-1 h-5 w-5 opacity-50 group-hover:opacity-100" aria-label="Remove file">
+                                        <div className="relative group rounded border p-2 max-h-60 overflow-auto">
+                                             <Button variant="ghost" size="icon" onClick={handleRemoveFile} className="absolute top-1 right-1 h-5 w-5 opacity-50 group-hover:opacity-100 z-10" aria-label="Remove file">
                                                 <X className="h-3 w-3"/>
                                              </Button>
                                             {uploadedFile?.type.startsWith('image/') ? (
-                                                <img src={filePreview} alt="File preview" className="max-w-full max-h-56 object-contain mx-auto" />
+                                                <img src={filePreview} alt="File preview" className="max-w-full max-h-56 object-contain mx-auto rounded" />
                                             ) : (
-                                                <p className="text-sm text-muted-foreground p-4">{filePreview}</p>
+                                                <p className="text-sm text-muted-foreground p-4 break-words">{filePreview}</p> // Added break-words
                                             )}
                                         </div>
                                     )}
                                     <Input type="file" ref={fileInputRef} onChange={handleFileChange} className="mt-2" />
-                                    <Button onClick={handleAddFileToChat} disabled={!uploadedFile}>Add File to Chat</Button>
+                                    <DialogFooter> {/* Move button to footer for better placement */}
+                                         <Button onClick={handleAddFileToChat} disabled={!uploadedFile}>Add File to Chat</Button>
+                                    </DialogFooter>
                                 </div>
                             </DialogContent>
                         </Dialog>
 
                          {/* Chat Settings Dialog */}
+                         {/* DialogContent already centers by default */}
                         <Dialog open={isChatSettingsOpen} onOpenChange={setIsChatSettingsOpen}>
                              <DialogTrigger asChild>
                                 <Button variant="ghost" size="icon" aria-label="Chat Settings">
@@ -441,7 +487,8 @@ export function Footer({ onSendMessage }: FooterProps) {
                                 <DialogHeader>
                                     <DialogTitle>Chat Settings</DialogTitle>
                                 </DialogHeader>
-                                <ScrollArea className="flex-grow pr-4 -mr-4"> {/* Allow content to scroll */}
+                                {/* Add overflow-y-auto to the main content area within the dialog */}
+                                <div className="flex-grow overflow-y-auto pr-4 -mr-4">
                                      <Tabs defaultValue="user" className="w-full mt-4">
                                         <TabsList className="grid w-full grid-cols-2">
                                             <TabsTrigger value="user">User Interface</TabsTrigger>
@@ -515,7 +562,7 @@ export function Footer({ onSendMessage }: FooterProps) {
                                                     {openRouterActive && (
                                                         <ModelSelectionBox
                                                             title="OpenRouter Models"
-                                                            providers={openRouterModels}
+                                                            providers={openRouterModels} // Use the placeholder list
                                                             activeModels={activeOpenRouterModels}
                                                             onToggle={(model) => handleModelToggle(model, 'openrouter')}
                                                             onSelectAll={() => handleSelectAllModels('openrouter')}
@@ -526,8 +573,8 @@ export function Footer({ onSendMessage }: FooterProps) {
                                             </Card>
                                         </TabsContent>
                                      </Tabs>
-                                </ScrollArea>
-                                <DialogFooter className="mt-4 pt-4 border-t">
+                                </div> {/* End scrollable area */}
+                                <DialogFooter className="mt-4 pt-4 border-t sticky bottom-0 bg-background py-4"> {/* Make footer sticky */}
                                     <DialogClose asChild>
                                         <Button variant="outline">Cancel</Button>
                                     </DialogClose>
@@ -535,11 +582,6 @@ export function Footer({ onSendMessage }: FooterProps) {
                                 </DialogFooter>
                              </DialogContent>
                         </Dialog>
-
-                        {/* Add more control icons here as needed */}
-                        {/* <Button variant="ghost" size="icon" aria-label="Attach file (old)">
-                            <Paperclip className="h-5 w-5 text-muted-foreground" />
-                        </Button> */}
                     </div>
                  )}
 
@@ -562,16 +604,16 @@ export function Footer({ onSendMessage }: FooterProps) {
                             {isRecording ? <Square className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
                         </Button>
                          <div className="flex-grow relative">
-                            {/* File Thumbnail */}
+                            {/* File Thumbnail - Positioned above the input */}
                              {uploadedFile && filePreview && (
-                                <div className="absolute bottom-full left-0 mb-1 p-1 bg-secondary border rounded-md shadow max-w-[150px] group">
-                                     <Button variant="ghost" size="icon" onClick={handleRemoveFile} className="absolute top-0 right-0 h-4 w-4 opacity-50 group-hover:opacity-100 z-10" aria-label="Remove file">
+                                <div className="absolute bottom-full left-0 mb-1 p-1 bg-secondary border rounded-md shadow max-w-[150px] group z-10"> {/* Added z-index */}
+                                     <Button variant="ghost" size="icon" onClick={handleRemoveFile} className="absolute top-0 right-0 h-4 w-4 opacity-50 group-hover:opacity-100 z-20" aria-label="Remove file">
                                         <X className="h-3 w-3"/>
                                      </Button>
                                     {uploadedFile.type.startsWith('image/') ? (
                                         <img src={filePreview} alt="Preview" className="max-h-16 max-w-full object-contain rounded" />
                                     ) : (
-                                        <span className="text-xs px-1 line-clamp-2">📄 {uploadedFile.name}</span>
+                                        <span className="text-xs px-1 line-clamp-2 break-all">📄 {uploadedFile.name}</span> /* Added break-all */
                                     )}
                                 </div>
                              )}
@@ -605,12 +647,14 @@ export function Footer({ onSendMessage }: FooterProps) {
                         {' '}using{' '}
                         <a href="https://puter.com" target="_blank" rel="noopener noreferrer" className="underline hover:text-foreground">Puter.com</a>
                         {' '}and other{' '}
+                         {/* Added align="center" to PopoverContent */}
                         <Popover>
                             <PopoverTrigger asChild>
                             <Button variant="link" size="sm" className="p-0 h-auto text-xs text-muted-foreground underline hover:text-foreground">
                                 providers
                             </Button>
                             </PopoverTrigger>
+                            {/* Add align="center" to PopoverContent */}
                             <PopoverContent className="w-auto p-2" align="center">
                             <ul className="space-y-1">
                                 {providerLinks.map((link) => (
@@ -646,17 +690,19 @@ function ModelSelectionBox({ title, providers, activeModels, onToggle, onSelectA
     const [isMinimized, setIsMinimized] = useState(false);
 
     return (
-        <Card className={cn(isMinimized && "h-auto")}>
+        <Card className={cn(isMinimized && "overflow-hidden")}> {/* Use overflow-hidden when minimized */}
             <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle className="text-base">{title}</CardTitle>
                 <div className="flex items-center space-x-1">
                      <Button variant="ghost" size="sm" onClick={onSelectAll}>Select All</Button>
                      <Button variant="ghost" size="sm" onClick={onDeselectAll}>Deselect All</Button>
                     <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setIsMinimized(!isMinimized)}>
+                        {/* Toggle icon based on state - requires importing ChevronsUpDown or similar */}
                         <Minimize2 className="h-4 w-4" />
                     </Button>
                 </div>
             </CardHeader>
+            {/* Conditionally render content based on isMinimized */}
             {!isMinimized && (
                 <CardContent>
                     <ScrollArea className="h-48 border rounded-md p-2">
@@ -668,11 +714,11 @@ function ModelSelectionBox({ title, providers, activeModels, onToggle, onSelectA
                                         {provider.models.map(model => (
                                             <div key={model} className="flex items-center space-x-2">
                                                 <Checkbox
-                                                    id={`${title}-${model}`}
+                                                    id={`${title}-${model}`} // Ensure unique ID based on title and model
                                                     checked={activeModels.includes(model)}
                                                     onCheckedChange={() => onToggle(model)}
                                                 />
-                                                <Label htmlFor={`${title}-${model}`} className="text-xs font-normal">
+                                                <Label htmlFor={`${title}-${model}`} className="text-xs font-normal cursor-pointer"> {/* Added cursor-pointer */}
                                                     {model.split('/').pop()} {/* Show short name */}
                                                 </Label>
                                             </div>
@@ -687,3 +733,5 @@ function ModelSelectionBox({ title, providers, activeModels, onToggle, onSelectA
         </Card>
     );
 }
+
+    
