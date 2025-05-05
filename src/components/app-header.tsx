@@ -89,30 +89,53 @@ const modelProviders = [
   {
     // Provider name mapping for Puter.js (use 'google' for Gemini models)
     provider: "Gemini",
-    models: ["google/gemini-2.0-flash-lite-001", "google/gemini-flash-1.5", "google/gemma-2-27b-it"], // Use Puter.js compatible names
+    // Updated Gemini model names based on Puter docs
+    models: [
+        "google/gemini-2.0-flash-lite-001", // Match example
+        "google/gemini-flash-1.5", // Match example, might be google/gemini-flash-1.5-8b? Verify if issues
+        "google/gemma-2-27b-it",
+        "google/gemini-2.5-flash-preview",
+        "google/gemini-2.5-pro-exp-03-25:free",
+        // Added more from Gemini doc example
+        "google/gemini-pro-1.5",
+        "google/gemini-pro",
+    ],
   },
   {
     // Provider name mapping for Puter.js (use 'meta-llama' prefix)
     provider: "Meta",
+    // Updated Llama model names based on Puter docs
     models: [
-      "meta-llama/llama-3.1-8b-instruct",
-      "meta-llama/llama-3.1-70b-instruct",
-      "meta-llama/llama-3.1-405b-instruct",
+      "meta-llama/llama-3.1-8b-instruct", // Match example
+      "meta-llama/llama-3.1-70b-instruct", // Match example
+      "meta-llama/llama-3.1-405b-instruct", // Match example
+      "meta-llama/llama-4-maverick",
+      "meta-llama/llama-4-scout",
+      "meta-llama/llama-3.3-70b-instruct",
+      "meta-llama/llama-3-8b-instruct",
+      "meta-llama/llama-3-70b-instruct",
+      "meta-llama/llama-2-70b-chat",
+      "meta-llama/llama-guard-3-8b",
     ],
   },
   {
     // Provider name mapping for Puter.js
     provider: "Mistral",
-    models: ["mistral-large-latest", "pixtral-large-latest", "codestral-latest"],
+    // Updated Mistral model names based on Puter docs
+    models: [
+        "mistral-large-latest",
+        "pixtral-large-latest",
+        "codestral-latest"
+    ],
   },
   {
     // Provider name mapping for Puter.js (use 'x-ai' prefix)
     provider: "XAI",
-    models: ["x-ai/grok-3-beta"], // Use Puter.js compatible name
+     // Updated Grok model names based on Puter docs
+    models: ["x-ai/grok-3-beta"],
   },
 ];
 
-// const defaultModel = modelProviders.find(p => p.defaultModel)?.defaultModel || modelProviders[0].models[0]; // Default model now comes from context
 
 interface AppHeaderProps {
   currentPageName?: string; // Optional prop for current page name override
@@ -128,92 +151,109 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
   const [puterLoaded, setPuterLoaded] = useState<boolean>(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isPageSwitcherOpen, setIsPageSwitcherOpen] = useState(false);
-  // Removed local selectedModel state: const [selectedModel, setSelectedModel] = useState<string>(defaultModel);
 
 
   const checkAuthStatus = useCallback(async () => {
-    if (typeof window !== 'undefined' && window.puter) {
-      setPuterLoaded(true);
+    // Ensure running on client and puter object exists
+    if (typeof window !== 'undefined' && window.puter?.auth) {
+      setPuterLoaded(true); // Mark as loaded if auth object is present
       try {
         const signedIn = await window.puter.auth.isSignedIn();
         setIsSignedIn(signedIn);
         if (signedIn) {
           const user: PuterUser = await window.puter.auth.getUser();
           setUsername(user.username);
+          console.log("User is signed in:", user.username); // Log signed in status
         } else {
           setUsername(null);
+          console.log("User is not signed in."); // Log signed out status
         }
       } catch (error) {
         console.error("Error checking Puter auth status:", error);
         setIsSignedIn(false);
         setUsername(null);
-        // Optional: Show a toast message
-        // toast({ variant: "destructive", title: "Auth Error", description: "Could not verify login status." });
       }
     } else {
-        // console.log("Puter library not loaded yet or window not available.");
-        // Retry after a short delay if Puter object not yet available
-        // Avoid infinite loops if Puter script fails to load
-        if (!puterLoaded) { // Only retry if not loaded yet
-            setTimeout(checkAuthStatus, 200); // Increased delay slightly
+        // Optionally retry if Puter hasn't loaded yet
+        if (!puterLoaded) {
+             console.log("Puter not loaded yet, retrying auth check...");
+            setTimeout(checkAuthStatus, 300); // Slightly increased delay
+        } else {
+             console.log("Puter loaded but auth methods not available (or not on client).");
         }
     }
-  }, [puterLoaded]); // Added puterLoaded dependency
+  }, [puterLoaded]); // Depend on puterLoaded
 
 
   useEffect(() => {
     checkAuthStatus();
-  }, [checkAuthStatus]);
+  }, [checkAuthStatus]); // Run checkAuthStatus when it or puterLoaded changes
 
   useEffect(() => {
     const currentPathItem = navItems.find(item => pathname.startsWith(item.href));
     setActivePage(currentPathItem || null);
   }, [pathname]);
 
-  const handleSignIn = async () => {
-    if (!puterLoaded || typeof window === 'undefined' || !window.puter?.auth?.signIn) {
+ const handleSignIn = async () => {
+    if (!puterLoaded || typeof window === 'undefined' || !window.puter) {
       toast({ variant: "destructive", title: "Error", description: "Authentication service not ready. Please wait a moment and try again." });
-      console.error("Puter auth.signIn is not available.");
+      console.error("Puter library not loaded or window not available.");
       return;
     }
+
+    console.log("Attempting sign in..."); // Add log
+
     try {
-        // Attempt to use puter.ui.authenticateWithPuter first for better mobile UX
+        // Check if puter.ui.authenticateWithPuter exists and try it first
         if (window.puter.ui && window.puter.ui.authenticateWithPuter) {
+             console.log("Trying puter.ui.authenticateWithPuter()..."); // Add log
              try {
-                // This method often provides a better iframe-like experience on mobile
                 await window.puter.ui.authenticateWithPuter();
-                await checkAuthStatus(); // Re-check status after authentication attempt
+                console.log("authenticateWithPuter completed (or cancelled)."); // Add log
+                // No explicit error means it either succeeded or was cancelled by user.
+                // Re-check status regardless to update UI state.
+                await checkAuthStatus();
+                return; // Exit after attempting this method
              } catch(authUiError) {
-                // If authenticateWithPuter fails or is cancelled, fall back to signIn
-                console.warn("authenticateWithPuter failed or cancelled, falling back to auth.signIn:", authUiError);
-                 if (authUiError instanceof Error && authUiError.message !== "User cancelled the dialog.") {
-                     await window.puter.auth.signIn();
-                     await checkAuthStatus();
-                 } else if (!(authUiError instanceof Error) && typeof authUiError === 'string' && authUiError.includes("cancelled")) {
-                     // Do nothing if specifically cancelled
+                console.warn("puter.ui.authenticateWithPuter() failed or was cancelled:", authUiError); // Add log
+                // Check if it was *not* a user cancellation before falling back
+                 if (authUiError instanceof Error && authUiError.message.toLowerCase().includes("cancel")) {
+                     console.log("User cancelled authenticateWithPuter dialog."); // Add log
+                     // Don't fall back if user explicitly cancelled
+                     await checkAuthStatus(); // Still check status in case something changed unexpectedly
+                     return;
                  } else {
-                    // Re-throw unexpected errors from authenticateWithPuter
-                    // throw authUiError; // Or handle differently
-                     await window.puter.auth.signIn(); // Try signIn anyway
-                     await checkAuthStatus();
+                     // Fallback to signIn for other errors or if the method failed unexpectedly
+                     console.log("Falling back to puter.auth.signIn() due to authenticateWithPuter error."); // Add log
+                     // Proceed to the signIn block below
                  }
              }
         } else {
-            // Fallback if authenticateWithPuter is not available
+             console.log("puter.ui.authenticateWithPuter() not found, using puter.auth.signIn()..."); // Add log
+        }
+
+        // Fallback or primary method: puter.auth.signIn()
+        if (window.puter.auth && window.puter.auth.signIn) {
             await window.puter.auth.signIn();
+            console.log("puter.auth.signIn() completed (or cancelled)."); // Add log
+            // signIn resolves even on cancellation, so always check status after.
             await checkAuthStatus();
+        } else {
+            console.error("Puter auth.signIn method not found!"); // Add log
+            toast({ variant: "destructive", title: "Error", description: "Sign in function not available." });
         }
 
     } catch (error) {
-      console.error("Puter sign in error:", error);
-      // The promise rejects if the user cancels the dialog.
-      // Only show error toast for actual failures.
-      if (error instanceof Error && error.message !== "User cancelled the dialog.") {
+      // Catch errors primarily from the outer try block (less likely now)
+      console.error("General sign in error caught:", error); // Add log
+      // Handle potential errors (though cancellations are usually handled above)
+      if (error instanceof Error && !error.message.toLowerCase().includes("cancel")) {
          toast({ variant: "destructive", title: "Sign In Failed", description: "An error occurred during sign in. Please try again." });
       } else if (!(error instanceof Error)) {
-          // Handle cases where the error might not be an Error object
-           toast({ variant: "destructive", title: "Sign In Failed", description: "An unexpected error occurred during sign in." });
+          toast({ variant: "destructive", title: "Sign In Failed", description: "An unexpected error occurred during sign in." });
       }
+      // Ensure status is checked even on error
+      await checkAuthStatus();
     }
   };
 
@@ -245,25 +285,10 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
   const pageTitle = currentPageName || activePage?.name || "JR Comhrá AI";
   const isChatPage = pathname.startsWith('/chat');
 
-  // Function to map internal model names to Puter.js compatible names
-  // This might be more complex depending on the exact mapping required.
-  const getPuterModelName = (internalName: string): string => {
-     // Simple example: if it already contains '/', assume it's Puter compatible
-     if (internalName.includes('/')) {
-         return internalName;
-     }
-     // Add more specific mappings if needed
-     switch (internalName) {
-         case 'claude-3-7-sonnet': return 'anthropic/claude-3.7-sonnet';
-         case 'claude-3-5-sonnet': return 'anthropic/claude-3.5-sonnet';
-         // Add other necessary mappings for Anthropic, DeepSeek, etc.
-         // Map OpenAI models correctly
-         case 'gpt-4o-mini': return 'openai/gpt-4o-mini';
-         case 'gpt-4o': return 'openai/gpt-4o';
-         // ... map all OpenAI models ...
-         default: return internalName; // Fallback
-     }
-  };
+  // Function to get display name (short version without provider prefix)
+  const getModelDisplayName = (modelName: string): string => {
+     return modelName.split('/').pop() || modelName;
+  }
 
 
   return (
@@ -282,8 +307,6 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
                   <LogOut className="mr-1 h-3 w-3" /> Sign Out
                 </Button>
               </div>
-              {/* Optionally show a user avatar */}
-              {/* <User className="h-6 w-6 text-muted-foreground" /> */}
             </div>
           ) : (
             <Button variant="outline" size="sm" onClick={handleSignIn}>
@@ -298,8 +321,7 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="text-lg font-semibold text-primary hover:text-accent transition-colors px-2">
-                  {/* Display the model name nicely, potentially removing the provider prefix */}
-                  {selectedModel.split('/').pop()}
+                  {getModelDisplayName(selectedModel)}
                   <ChevronDown className="ml-2 h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
@@ -310,8 +332,7 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
                         <DropdownMenuLabel>{provider.provider}</DropdownMenuLabel>
                         {provider.models.map(model => (
                             <DropdownMenuRadioItem key={model} value={model}>
-                            {/* Display model name nicely */}
-                            {model.split('/').pop()}
+                              {getModelDisplayName(model)}
                             </DropdownMenuRadioItem>
                         ))}
                         </DropdownMenuGroup>
@@ -488,3 +509,4 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
     </header>
   );
 }
+
