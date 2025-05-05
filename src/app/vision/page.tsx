@@ -5,9 +5,9 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { PageLayout } from '@/components/page-layout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Upload, Camera, Monitor, Mic as MicIcon, AlertCircle, KeyRound } from 'lucide-react'; // Added KeyRound
+import { Upload, Camera, Monitor, Mic as MicIcon, AlertCircle, KeyRound } from 'lucide-react';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label'; // Import Label
+import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { format } from 'date-fns';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -23,7 +23,6 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from '@/lib/utils';
 
-
 // Interface for message structure
 interface Message {
   id: string;
@@ -33,8 +32,8 @@ interface Message {
   imageUrl?: string; // Optional image URL for user messages
 }
 
-// Define the model name constant
-const GEMINI_MODEL_NAME = "gemini-1.5-flash-latest"; // Corrected model name based on Gemini API docs
+// Define the model name constant - Use the corrected model name
+const GEMINI_MODEL_NAME = "gemini-1.5-flash-latest";
 
 export default function VisionPage() {
     const [apiKey, setApiKey] = useState<string | null>(null);
@@ -133,6 +132,7 @@ export default function VisionPage() {
         setIsLoading(true);
         scrollToBottom(); // Scroll after adding user message
 
+        // Use v1beta endpoint as v1 doesn't support 'generateContent' directly via REST for all models/features
         const geminiApiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_NAME}:generateContent?key=${apiKey}`;
 
         const parts = [];
@@ -145,6 +145,16 @@ export default function VisionPage() {
         const requestBody = {
             contents: [{ role: "user", parts: parts }],
             // Add generationConfig or safetySettings if needed
+             generationConfig: {
+                // Ensure TEXT modality is requested if not sending images yet
+                // responseMimeType: "text/plain", // Or omit if default is text
+             },
+             safetySettings: [ // Example safety settings
+                { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
+                { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
+                { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
+                { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
+             ],
         };
 
         try {
@@ -155,55 +165,61 @@ export default function VisionPage() {
                 body: JSON.stringify(requestBody),
             });
 
-            let errorData: any = {}; // Use any to avoid strict type errors during error parsing
+            let errorData: any = {};
             let detailedMessage = `Gemini API Error: ${response.status} ${response.statusText}`;
-            let responseText = ''; // Store raw response text
+            let responseText = '';
 
-            if (!response.ok) {
+             if (!response.ok) {
+                 let rawErrorText = '';
                  try {
-                    responseText = await response.text(); // Get raw text first
-                    try {
-                        errorData = JSON.parse(responseText); // Try parsing later
-                        console.error("Gemini API Error Response (JSON):", errorData); // Log detailed error
-                         if (typeof errorData === 'object' && errorData !== null && 'error' in errorData && typeof errorData.error === 'object' && errorData.error !== null && 'message' in errorData.error) {
-                            detailedMessage += ` - ${errorData.error.message}`;
-                         } else if (responseText) {
-                             detailedMessage += ` - ${responseText}`;
-                         }
-                    } catch (parseError) {
-                        console.error("Could not parse error response as JSON:", parseError);
-                        if (responseText) {
-                             detailedMessage += ` - ${responseText}`; // Use raw text if parsing failed
-                         }
-                    }
-                } catch (textReadError) {
-                    console.error("Could not read error response text:", textReadError);
-                } finally {
-                    // Add specific checks for common errors
-                     if (response.status === 400 && (responseText.includes("API_KEY_INVALID") || responseText.includes("API key not valid"))) {
-                         detailedMessage = "Invalid Gemini API Key. Please check your key.";
-                         setIsApiKeyDialogOpen(true);
-                     } else if (response.status === 400 && (responseText.includes("not found for API version") || responseText.includes("not supported for generateContent"))) {
-                         detailedMessage = `Model '${GEMINI_MODEL_NAME}' not found or method not supported. Check model name.`;
-                     } else if (response.status === 400) {
-                         detailedMessage += " Bad request. Check input format.";
-                     } else if (response.status === 401 || response.status === 403) {
-                         detailedMessage = "Authentication failed. Check your API key permissions.";
-                         setIsApiKeyDialogOpen(true);
-                     } else if (response.status === 429) {
-                         detailedMessage += " Rate limit exceeded. Please try again later.";
-                     } else if (response.status >= 500) {
-                         detailedMessage += " Server error on Gemini's side. Please try again later.";
+                     rawErrorText = await response.text(); // Get raw error text first
+                     console.log("Raw Gemini Error Text:", rawErrorText); // Log raw response
+                     errorData = JSON.parse(rawErrorText); // Try parsing JSON
+                     console.error("Gemini API Error Response (JSON Parsed):", errorData);
+                     if (errorData?.error?.message) {
+                         detailedMessage += ` - ${errorData.error.message}`;
+                     } else if (rawErrorText) {
+                          detailedMessage += ` - ${rawErrorText}`;
                      }
+                 } catch (parseError) {
+                     console.error("Could not parse error response as JSON:", parseError);
+                     if (rawErrorText) {
+                          detailedMessage += ` - ${rawErrorText}`; // Use raw text if JSON parsing fails
+                     } else {
+                         // Attempt to get text again if first try failed somehow
+                         try {
+                            rawErrorText = await response.text();
+                            if (rawErrorText) detailedMessage += ` - ${rawErrorText}`;
+                         } catch (e) { console.error("Could not read error text", e); }
+                     }
+                 } finally {
+                    // Add specific checks for common errors based on status/text
+                    if (response.status === 400 && (rawErrorText.includes("API_KEY_INVALID") || rawErrorText.includes("API key not valid"))) {
+                        detailedMessage = "Invalid Gemini API Key. Please check your key.";
+                        setIsApiKeyDialogOpen(true);
+                    } else if (response.status === 400 && (rawErrorText.includes("not found for API version") || rawErrorText.includes("not supported for generateContent"))) {
+                        detailedMessage = `Model '${GEMINI_MODEL_NAME}' not found or method not supported for v1beta. Check model name/API version compatibility.`;
+                    } else if (response.status === 400) {
+                        detailedMessage += " Bad request. Check input format or safety settings.";
+                    } else if (response.status === 401 || response.status === 403) {
+                        detailedMessage = "Authentication failed. Check your API key permissions.";
+                        setIsApiKeyDialogOpen(true);
+                    } else if (response.status === 429) {
+                        detailedMessage += " Rate limit exceeded. Please try again later.";
+                    } else if (response.status >= 500) {
+                        detailedMessage += " Server error on Gemini's side. Please try again later.";
+                    }
                  }
                  throw new Error(detailedMessage);
             }
+
 
             const responseData = await response.json();
             console.log("Received from Gemini:", responseData);
 
             // Extract text from response - adjust based on actual Gemini API structure
             let aiText = "No text content received."; // Default message
+             // Standard REST API response structure
             if (responseData.candidates && responseData.candidates.length > 0) {
                  const candidate = responseData.candidates[0];
                  if (candidate.content && candidate.content.parts && candidate.content.parts.length > 0) {
@@ -212,6 +228,19 @@ export default function VisionPage() {
                          .map((part: { text?: string }) => part.text || "")
                          .join("");
                  }
+                 // Check for finishReason if needed
+                 if (candidate.finishReason && candidate.finishReason !== "STOP") {
+                    aiText += `\n[Response ended due to: ${candidate.finishReason}]`;
+                    if(candidate.finishReason === "SAFETY") {
+                        aiText += `\n[Safety Rating: ${JSON.stringify(candidate.safetyRatings)}]`
+                    }
+                 }
+             } else if (responseData.promptFeedback) {
+                 // Handle cases where the prompt itself was blocked
+                 aiText = `[Prompt Blocked: ${responseData.promptFeedback.blockReason}]`;
+                  if(responseData.promptFeedback.safetyRatings) {
+                        aiText += `\n[Safety Rating: ${JSON.stringify(responseData.promptFeedback.safetyRatings)}]`
+                    }
              }
 
 
@@ -286,7 +315,10 @@ export default function VisionPage() {
             cameraStreamRef.current = stream; // Store the camera stream
             if (videoRef.current) {
                 videoRef.current.srcObject = stream;
-                videoRef.current.play().catch(e => console.error("Camera video play error:", e));
+                // Ensure the video plays when the stream is ready
+                videoRef.current.onloadedmetadata = () => {
+                    videoRef.current?.play().catch(e => console.error("Camera video play error:", e));
+                };
             }
             setIsCameraActive(true);
             console.log("Camera started");
@@ -304,6 +336,7 @@ export default function VisionPage() {
         }
         if (videoRef.current) {
             videoRef.current.srcObject = null; // Clear video source
+            videoRef.current.onloadedmetadata = null; // Clean up listener
         }
         setIsCameraActive(false);
         console.log("Camera stopped");
@@ -358,7 +391,10 @@ export default function VisionPage() {
              screenStreamRef.current = stream;
              if (screenVideoRef.current) {
                  screenVideoRef.current.srcObject = stream;
-                 screenVideoRef.current.play().catch(e => console.error("Screen share video play error:", e));
+                  // Ensure the video plays when the stream is ready
+                 screenVideoRef.current.onloadedmetadata = () => {
+                    screenVideoRef.current?.play().catch(e => console.error("Screen share video play error:", e));
+                 };
              }
              setIsScreenActive(true);
              console.log("Screen share started");
@@ -383,6 +419,7 @@ export default function VisionPage() {
         }
         if (screenVideoRef.current) {
             screenVideoRef.current.srcObject = null;
+            screenVideoRef.current.onloadedmetadata = null; // Clean up listener
         }
         setIsScreenActive(false);
         console.log("Screen share stopped");
@@ -558,12 +595,12 @@ export default function VisionPage() {
                                  <video
                                      ref={videoRef}
                                      className={cn(
-                                         "w-auto h-32 aspect-video rounded-md bg-black",
+                                         "w-auto h-32 aspect-video rounded-md", // Removed bg-black
                                          { 'hidden': hasCameraPermission === false }
                                      )}
                                      autoPlay
                                      muted
-                                     playsInline
+                                     playsInline // Important for mobile browsers
                                  />
                                  {hasCameraPermission === false && (
                                     <Alert variant="destructive" className="w-auto mt-1 text-xs">
@@ -581,7 +618,7 @@ export default function VisionPage() {
                                 <video
                                     ref={screenVideoRef}
                                     className={cn(
-                                        "w-auto h-32 aspect-video rounded-md bg-black",
+                                        "w-auto h-32 aspect-video rounded-md", // Removed bg-black
                                         { 'hidden': hasScreenPermission === false }
                                     )}
                                     autoPlay
@@ -660,7 +697,7 @@ export default function VisionPage() {
                         {/* Placeholder when no messages */}
                         {messages.length === 0 && !isLoading && (
                              <p className="text-sm text-muted-foreground text-center p-4">
-                                {apiKey ? 'Start chatting below.' : 'Enter your Gemini API key to start chatting.'}
+                                {apiKey ? 'Activate a source (Camera, Screen, or Audio) or start chatting below.' : 'Enter your Gemini API key to start.'}
                              </p>
                         )}
                         {/* Div to mark the end of messages for scrolling */}
@@ -680,6 +717,10 @@ export default function VisionPage() {
                         className="flex-grow"
                         disabled={isLoading || !apiKey} // Disable if loading or no API key
                     />
+                     {/* File Upload Button (Placeholder/Future Feature) */}
+                     <Button variant="outline" size="icon" disabled>
+                         <Upload className="h-4 w-4" />
+                     </Button>
                     <Button onClick={() => handleSendMessage(inputValue)} disabled={isLoading || !apiKey || (!inputValue.trim() && messages.length === 0)}>
                         {isLoading ? <Skeleton className="h-5 w-5" /> : "Send"}
                     </Button>
@@ -688,3 +729,5 @@ export default function VisionPage() {
         </PageLayout>
     );
 }
+
+    
