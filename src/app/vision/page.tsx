@@ -35,7 +35,7 @@ interface Message {
 }
 
 // Define the model name constant - Use the correct Gemini Live model
-const GEMINI_MODEL_NAME = "models/gemini-2.0-flash-live-001";
+const GEMINI_MODEL_NAME = "gemini-2.0-flash-live-001";
 // Define the API version to use
 const GEMINI_API_VERSION = "v1alpha"; // Changed from v1beta
 
