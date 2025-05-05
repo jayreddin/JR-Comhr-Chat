@@ -53,16 +53,63 @@ const providerLinks = [
 ];
 
 // AI Model Definitions (Simplified for example - use the one from AppHeader if needed)
+// TODO: Replace with a centralized model list if available
 const modelProviders = [
   {
     provider: "OpenAI",
-    models: ["gpt-4o-mini", "gpt-4o", "o1-mini", "gpt-4.1"],
+    models: [
+      "gpt-4o-mini", "gpt-4o", "o1", "o1-mini", "o1-pro", "o3", "o3-mini", "o4-mini",
+      "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano", "gpt-4.5-preview",
+    ],
+    defaultModel: "gpt-4o-mini",
   },
   {
     provider: "Anthropic",
     models: ["claude-3-7-sonnet", "claude-3-5-sonnet"],
   },
-  // ... add other providers as needed
+  {
+    provider: "DeepSeek",
+    models: ["deepseek-chat", "deepseek-reasoner"],
+  },
+  {
+    provider: "Gemini",
+    models: [
+        "google/gemini-2.0-flash-lite-001",
+        "google/gemini-flash-1.5",
+        "google/gemma-2-27b-it",
+        "google/gemini-2.5-flash-preview",
+        "google/gemini-2.5-pro-exp-03-25:free",
+        "google/gemini-pro-1.5",
+        "google/gemini-pro",
+    ],
+  },
+  {
+    provider: "Meta",
+    models: [
+      "meta-llama/llama-3.1-8b-instruct",
+      "meta-llama/llama-3.1-70b-instruct",
+      "meta-llama/llama-3.1-405b-instruct",
+      "meta-llama/llama-4-maverick",
+      "meta-llama/llama-4-scout",
+      "meta-llama/llama-3.3-70b-instruct",
+      "meta-llama/llama-3-8b-instruct",
+      "meta-llama/llama-3-70b-instruct",
+      "meta-llama/llama-2-70b-chat",
+      "meta-llama/llama-guard-3-8b",
+    ],
+  },
+  {
+    provider: "Mistral",
+    models: [
+        "mistral-large-latest",
+        "pixtral-large-latest",
+        "codestral-latest"
+    ],
+  },
+  {
+    provider: "XAI",
+    models: ["x-ai/grok-3-beta"],
+  },
 ];
 const openRouterModels = [
     { provider: "OpenRouter", models: ["or-model-1", "or-model-2"] } // Placeholder OpenRouter models
@@ -450,7 +497,7 @@ export function Footer({ onSendMessage }: FooterProps) {
                                     <Upload className="h-5 w-5 text-muted-foreground" />
                                 </Button>
                             </DialogTrigger>
-                            <DialogContent className="sm:max-w-[425px]"> {/* Optional: Adjust max width if needed */}
+                            <DialogContent className="sm:max-w-[425px]" align="center"> {/* Optional: Adjust max width if needed */}
                                 <DialogHeader>
                                     <DialogTitle>Upload File</DialogTitle>
                                 </DialogHeader>
@@ -476,19 +523,18 @@ export function Footer({ onSendMessage }: FooterProps) {
                         </Dialog>
 
                          {/* Chat Settings Dialog */}
-                         {/* DialogContent already centers by default */}
                         <Dialog open={isChatSettingsOpen} onOpenChange={setIsChatSettingsOpen}>
                              <DialogTrigger asChild>
                                 <Button variant="ghost" size="icon" aria-label="Chat Settings">
                                     <Settings className="h-5 w-5 text-muted-foreground" />
                                 </Button>
                              </DialogTrigger>
-                             <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
+                             <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col" align="center">
                                 <DialogHeader>
                                     <DialogTitle>Chat Settings</DialogTitle>
                                 </DialogHeader>
-                                {/* Add overflow-y-auto to the main content area within the dialog */}
-                                <div className="flex-grow overflow-y-auto pr-4 -mr-4">
+                                {/* Scrollable content area */}
+                                <div className="flex-grow overflow-y-auto pr-4 -mr-4 scrollbar-hide"> {/* Added scrollbar-hide */}
                                      <Tabs defaultValue="user" className="w-full mt-4">
                                         <TabsList className="grid w-full grid-cols-2">
                                             <TabsTrigger value="user">User Interface</TabsTrigger>
@@ -537,8 +583,7 @@ export function Footer({ onSendMessage }: FooterProps) {
                                         </TabsContent>
                                         <TabsContent value="models">
                                             <Card>
-                                                 {/* Removed CardHeader */}
-                                                 <CardContent className="space-y-4 pt-6"> {/* Added pt-6 for spacing */}
+                                                 <CardContent className="space-y-4 pt-6"> {/* Added pt-6 */}
                                                     {/* Default Models Box */}
                                                     <ModelSelectionBox
                                                         title="Default Models"
@@ -571,7 +616,8 @@ export function Footer({ onSendMessage }: FooterProps) {
                                         </TabsContent>
                                      </Tabs>
                                 </div> {/* End scrollable area */}
-                                <DialogFooter className="mt-4 pt-4 border-t sticky bottom-0 bg-background py-4 justify-center sm:justify-center"> {/* Added sticky, bottom-0, bg-background, py-4 */}
+                                {/* Dialog Footer - Placed AFTER the scrollable content */}
+                                <DialogFooter className="mt-auto pt-4 border-t bg-background justify-center"> {/* Removed sticky, bottom-0. Use mt-auto */}
                                     <DialogClose asChild>
                                         <Button variant="outline">Cancel</Button>
                                     </DialogClose>
@@ -702,7 +748,7 @@ function ModelSelectionBox({ title, providers, activeModels, onToggle, onSelectA
             {!isMinimized && (
                 <CardContent>
                     {/* Use ScrollArea without explicit scrollbar */}
-                    <ScrollArea className="h-48 border rounded-md p-2 [&>div>div[style]]:!block"> {/* Style to force scrollbar visibility, then hide via CSS */}
+                    <ScrollArea className="h-48 border rounded-md p-2 scrollbar-hide"> {/* Added scrollbar-hide */}
                         <div className="space-y-3">
                             {providers.map(provider => (
                                 <div key={provider.provider}>
@@ -730,3 +776,4 @@ function ModelSelectionBox({ title, providers, activeModels, onToggle, onSelectA
         </Card>
     );
 }
+
