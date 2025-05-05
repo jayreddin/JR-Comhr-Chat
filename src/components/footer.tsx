@@ -33,7 +33,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Mic, Send, Paperclip, Square, PlusCircle, History, Upload, Settings, X, Minimize2, Loader2 } from 'lucide-react'; // Added Loader2
 import { toast } from "@/hooks/use-toast"; // Import toast for notifications
 import { cn } from '@/lib/utils'; // Import cn for conditional classes
-import { useAppState } from '@/context/app-state-context'; // Import context hook for model list potentially
+import { useAppState } from '@/context/app-state-context'; // Import context hook
 
 // Define SpeechRecognition types locally if not globally available
 declare global {
@@ -53,64 +53,64 @@ const providerLinks = [
 ];
 
 // AI Model Definitions (Used as initial state for active models)
-// TODO: Consider centralizing this list, maybe using AppStateContext
+// TODO: Consolidate this maybe? It's also in app-state-context
 const modelProviders = [
-  {
-    provider: "OpenAI",
-    models: [
-      "gpt-4o-mini", "gpt-4o", "o1", "o1-mini", "o1-pro", "o3", "o3-mini", "o4-mini",
-      "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano", "gpt-4.5-preview",
-    ],
-    defaultModel: "gpt-4o-mini",
-  },
-  {
-    provider: "Anthropic",
-    models: ["claude-3-7-sonnet", "claude-3-5-sonnet"],
-  },
-  {
-    provider: "DeepSeek",
-    models: ["deepseek-chat", "deepseek-reasoner"],
-  },
-  {
-    provider: "Gemini",
-    models: [
-        "google/gemini-2.0-flash-lite-001",
-        "google/gemini-flash-1.5",
-        "google/gemma-2-27b-it",
-        "google/gemini-2.5-flash-preview",
-        "google/gemini-2.5-pro-exp-03-25:free",
-        "google/gemini-pro-1.5",
-        "google/gemini-pro",
-    ],
-  },
-  {
-    provider: "Meta",
-    models: [
-      "meta-llama/llama-3.1-8b-instruct",
-      "meta-llama/llama-3.1-70b-instruct",
-      "meta-llama/llama-3.1-405b-instruct",
-      "meta-llama/llama-4-maverick",
-      "meta-llama/llama-4-scout",
-      "meta-llama/llama-3.3-70b-instruct",
-      "meta-llama/llama-3-8b-instruct",
-      "meta-llama/llama-3-70b-instruct",
-      "meta-llama/llama-2-70b-chat",
-      "meta-llama/llama-guard-3-8b",
-    ],
-  },
-  {
-    provider: "Mistral",
-    models: [
-        "mistral-large-latest",
-        "pixtral-large-latest",
-        "codestral-latest"
-    ],
-  },
-  {
-    provider: "XAI",
-    models: ["x-ai/grok-3-beta"],
-  },
-];
+    {
+      provider: "OpenAI",
+      models: [
+        "gpt-4o-mini", "gpt-4o", "o1", "o1-mini", "o1-pro", "o3", "o3-mini", "o4-mini",
+        "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano", "gpt-4.5-preview",
+      ],
+      defaultModel: "gpt-4o-mini",
+    },
+    {
+      provider: "Anthropic",
+      models: ["claude-3-7-sonnet", "claude-3-5-sonnet"],
+    },
+    {
+      provider: "DeepSeek",
+      models: ["deepseek-chat", "deepseek-reasoner"],
+    },
+    {
+      provider: "Gemini",
+      models: [
+          "google/gemini-2.0-flash-lite-001",
+          "google/gemini-flash-1.5",
+          "google/gemma-2-27b-it",
+          "google/gemini-2.5-flash-preview",
+          "google/gemini-2.5-pro-exp-03-25:free",
+          "google/gemini-pro-1.5",
+          "google/gemini-pro",
+      ],
+    },
+    {
+      provider: "Meta",
+      models: [
+        "meta-llama/llama-3.1-8b-instruct",
+        "meta-llama/llama-3.1-70b-instruct",
+        "meta-llama/llama-3.1-405b-instruct",
+        "meta-llama/llama-4-maverick",
+        "meta-llama/llama-4-scout",
+        "meta-llama/llama-3.3-70b-instruct",
+        "meta-llama/llama-3-8b-instruct",
+        "meta-llama/llama-3-70b-instruct",
+        "meta-llama/llama-2-70b-chat",
+        "meta-llama/llama-guard-3-8b",
+      ],
+    },
+    {
+      provider: "Mistral",
+      models: [
+          "mistral-large-latest",
+          "pixtral-large-latest",
+          "codestral-latest"
+      ],
+    },
+    {
+      provider: "XAI",
+      models: ["x-ai/grok-3-beta"],
+    },
+  ];
 
 // Structure for OpenRouter models (will be populated dynamically)
 const openRouterProvidersStructure = [{ provider: "OpenRouter", models: [] as string[] }];
@@ -129,20 +129,31 @@ export function Footer({ onSendMessage }: FooterProps) {
     const [filePreview, setFilePreview] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    // State for Chat Settings
-    const [theme, setTheme] = useState<'light' | 'dark'>('light'); // Default theme
-    const [textSize, setTextSize] = useState<number>(14); // Default text size in px
+    // Get context values and setters
+    const {
+        activeDefaultModels,
+        setActiveDefaultModels,
+        activeOpenRouterModels,
+        setActiveOpenRouterModels,
+        openRouterActive,
+        setOpenRouterActive,
+        availableOpenRouterModels,
+        setAvailableOpenRouterModels,
+        isLoadingOpenRouterModels,
+        setIsLoadingOpenRouterModels,
+        enabledModels // Use the derived list from context
+    } = useAppState();
+
+    // State for Chat Settings (UI only, context holds the actual state)
+    const [theme, setTheme] = useState<'light' | 'dark'>('light');
+    const [textSize, setTextSize] = useState<number>(14);
     const [chatMode, setChatMode] = useState<'normal' | 'compact'>('normal');
-    const [activeModels, setActiveModels] = useState<string[]>(modelProviders.flatMap(p => p.models)); // Initially all default models active
-    const [openRouterActive, setOpenRouterActive] = useState(false);
-    const [availableOpenRouterModels, setAvailableOpenRouterModels] = useState<string[]>([]); // State for fetched OR models
-    const [isLoadingOpenRouterModels, setIsLoadingOpenRouterModels] = useState(false); // Loading state for OR fetch
-    const [activeOpenRouterModels, setActiveOpenRouterModels] = useState<string[]>([]); // Selected OR models
-    const [showEnabledOnly, setShowEnabledOnly] = useState(false); // State for the new switch
+    const [showEnabledOnly, setShowEnabledOnly] = useState(false);
     const [isChatSettingsOpen, setIsChatSettingsOpen] = useState(false);
     const [isHistoryOpen, setIsHistoryOpen] = useState(false);
     const [isFileUploadOpen, setIsFileUploadOpen] = useState(false);
     const [chatHistory, setChatHistory] = useState<{ id: string, name: string, timestamp: number }[]>([]); // Placeholder history
+
 
     // --- Speech Recognition Logic ---
     useEffect(() => {
@@ -376,17 +387,17 @@ export function Footer({ onSendMessage }: FooterProps) {
 
 
     const handleSaveSettings = () => {
-        console.log("Saving chat settings:", { theme, textSize, chatMode, activeModels, openRouterActive, activeOpenRouterModels });
-        // 1. Apply settings (already applied live)
-        // 2. Save settings to local storage
+        console.log("Saving chat settings:", { theme, textSize, chatMode, activeDefaultModels, openRouterActive, activeOpenRouterModels });
+        // Settings are now saved directly via context setters in the UI controls.
+        // This function just saves to localStorage.
         try {
             localStorage.setItem('chatSettings', JSON.stringify({
                 theme,
                 textSize,
                 chatMode,
-                activeModels,
-                openRouterActive,
-                activeOpenRouterModels,
+                activeModels: activeDefaultModels, // Use context state
+                openRouterActive,               // Use context state
+                activeOpenRouterModels,         // Use context state
             }));
             setIsChatSettingsOpen(false); // Close dialog
             toast({ title: "Settings Saved", description: "Chat settings have been saved." });
@@ -410,11 +421,11 @@ export function Footer({ onSendMessage }: FooterProps) {
          }
      }, [textSize]);
 
-     // Apply chat mode instantly (if CSS is set up for it)
+     // Apply chat mode instantly using data attribute on body
      useEffect(() => {
         if (typeof window !== 'undefined') {
-            // Example: document.body.dataset.chatMode = chatMode;
-            console.log("Chat mode changed to:", chatMode); // Placeholder
+            document.body.dataset.chatMode = chatMode;
+            console.log("Chat mode changed to:", chatMode); // Log change
         }
      }, [chatMode]);
 
@@ -426,19 +437,21 @@ export function Footer({ onSendMessage }: FooterProps) {
             if (savedSettings) {
                 try {
                     const parsedSettings = JSON.parse(savedSettings);
+                    // Set local state for UI controls
                     setTheme(parsedSettings.theme || 'light');
                     setTextSize(parsedSettings.textSize || 14);
                     setChatMode(parsedSettings.chatMode || 'normal');
-                    setActiveModels(parsedSettings.activeModels || modelProviders.flatMap(p => p.models));
-                    // Set activeOpenRouterModels before setting openRouterActive to avoid race conditions
+                    // Update context state (if not already done by AppStateProvider)
+                    // Note: AppStateProvider already loads these, potentially causing double-setting.
+                    // Consider removing context updates here if AppStateProvider handles initial load.
+                    setActiveDefaultModels(parsedSettings.activeModels || modelProviders.flatMap(p => p.models));
                     setActiveOpenRouterModels(parsedSettings.activeOpenRouterModels || []);
                     setOpenRouterActive(parsedSettings.openRouterActive || false);
 
-                     // Apply loaded settings immediately (redundant due to individual useEffects but good for initial load)
+                     // Apply loaded settings immediately
                     document.documentElement.classList.toggle('dark', parsedSettings.theme === 'dark');
                     document.documentElement.style.setProperty('--chat-text-size', `${parsedSettings.textSize || 14}px`);
-                     // Apply chat mode if needed
-                     // document.body.dataset.chatMode = parsedSettings.chatMode || 'normal';
+                    document.body.dataset.chatMode = parsedSettings.chatMode || 'normal'; // Apply chat mode
 
                 } catch (e) {
                     console.error("Failed to parse saved chat settings", e);
@@ -451,14 +464,15 @@ export function Footer({ onSendMessage }: FooterProps) {
             { id: '2', name: 'Puter.js Integration', timestamp: Date.now() - 7200000 },
             { id: '3', name: 'Tailwind Styling', timestamp: Date.now() - 10800000 },
         ]);
-    }, []);
+    }, [setActiveDefaultModels, setActiveOpenRouterModels, setOpenRouterActive]); // Add context setters to dependency array
 
 
      // Fetch OpenRouter models when the switch is activated
     useEffect(() => {
+        // Check if context state indicates fetching is needed
         if (openRouterActive && availableOpenRouterModels.length === 0 && !isLoadingOpenRouterModels) {
             const fetchOpenRouterModels = async () => {
-                setIsLoadingOpenRouterModels(true);
+                setIsLoadingOpenRouterModels(true); // Use context setter
                 try {
                     const response = await fetch('https://openrouter.ai/api/v1/models');
                     if (!response.ok) {
@@ -467,14 +481,14 @@ export function Footer({ onSendMessage }: FooterProps) {
                     const data = await response.json();
                     // Extract model IDs from the 'data' array
                     const modelIds = data?.data?.map((model: any) => model.id) || [];
-                    setAvailableOpenRouterModels(modelIds);
+                    setAvailableOpenRouterModels(modelIds); // Use context setter
                     console.log("Fetched OpenRouter Models:", modelIds);
                 } catch (error) {
                     console.error("Failed to fetch OpenRouter models:", error);
                     toast({ variant: "destructive", title: "Fetch Error", description: "Could not load OpenRouter models. Please try again later." });
-                    setOpenRouterActive(false); // Turn switch off on error
+                    setOpenRouterActive(false); // Turn switch off on error using context setter
                 } finally {
-                    setIsLoadingOpenRouterModels(false);
+                    setIsLoadingOpenRouterModels(false); // Use context setter
                 }
             };
             fetchOpenRouterModels();
@@ -482,12 +496,13 @@ export function Footer({ onSendMessage }: FooterProps) {
              // Optional: Clear available models when switch is off? Or keep them cached?
             // setAvailableOpenRouterModels([]); // Uncomment to clear if desired
         }
-    }, [openRouterActive, availableOpenRouterModels.length, isLoadingOpenRouterModels]); // Depend on activation and loading state
+    // Depend on context state and setters
+    }, [openRouterActive, availableOpenRouterModels.length, isLoadingOpenRouterModels, setAvailableOpenRouterModels, setIsLoadingOpenRouterModels, setOpenRouterActive]);
 
-     // Model Selection Handlers
+     // Model Selection Handlers (now using context setters)
     const handleModelToggle = (modelName: string, providerType: 'default' | 'openrouter') => {
-        const isActive = providerType === 'default' ? activeModels.includes(modelName) : activeOpenRouterModels.includes(modelName);
-        const setActiveFunc = providerType === 'default' ? setActiveModels : setActiveOpenRouterModels;
+        const isActive = providerType === 'default' ? activeDefaultModels.includes(modelName) : activeOpenRouterModels.includes(modelName);
+        const setActiveFunc = providerType === 'default' ? setActiveDefaultModels : setActiveOpenRouterModels;
 
         setActiveFunc(prev =>
             isActive ? prev.filter(m => m !== modelName) : [...prev, modelName]
@@ -497,20 +512,20 @@ export function Footer({ onSendMessage }: FooterProps) {
     const handleSelectAllModels = (providerType: 'default' | 'openrouter') => {
         const allModels = providerType === 'default'
             ? modelProviders.flatMap(p => p.models)
-            : availableOpenRouterModels; // Use fetched OR models
-        const setActiveFunc = providerType === 'default' ? setActiveModels : setActiveOpenRouterModels;
+            : availableOpenRouterModels; // Use fetched OR models from context
+        const setActiveFunc = providerType === 'default' ? setActiveDefaultModels : setActiveOpenRouterModels;
         setActiveFunc(allModels);
     };
 
     const handleDeselectAllModels = (providerType: 'default' | 'openrouter') => {
-        const setActiveFunc = providerType === 'default' ? setActiveModels : setActiveOpenRouterModels;
+        const setActiveFunc = providerType === 'default' ? setActiveDefaultModels : setActiveOpenRouterModels;
         setActiveFunc([]);
     };
 
-    // Calculate all currently enabled models
-    const allEnabledModels = useMemo(() => {
-        return [...activeModels, ...activeOpenRouterModels];
-    }, [activeModels, activeOpenRouterModels]);
+    // Use the derived `enabledModels` from context directly
+    // const allEnabledModels = useMemo(() => {
+    //     return [...activeDefaultModels, ...activeOpenRouterModels];
+    // }, [activeDefaultModels, activeOpenRouterModels]);
 
     // --- End Control Bar Actions ---
 
@@ -650,7 +665,7 @@ export function Footer({ onSendMessage }: FooterProps) {
                                         </TabsContent>
                                         <TabsContent value="models">
                                             <Card>
-                                                 <CardContent className="space-y-4 pt-6 scrollbar-hide"> {/* Added pt-6 and scrollbar-hide */}
+                                                 <CardContent className="space-y-4 pt-6 scrollbar-hide"> {/* Added scrollbar-hide */}
 
                                                     {/* Show Enabled Models Only Switch */}
                                                     <div className="flex items-center space-x-2 pb-4 border-b">
@@ -667,11 +682,9 @@ export function Footer({ onSendMessage }: FooterProps) {
                                                      {/* Conditional Rendering based on the switch */}
                                                      {showEnabledOnly ? (
                                                         <EnabledModelsBox
-                                                            allEnabledModels={allEnabledModels}
-                                                            activeModels={activeModels}
-                                                            activeOpenRouterModels={activeOpenRouterModels}
+                                                            allEnabledModels={enabledModels} // Use derived list from context
                                                             onToggle={(model) => {
-                                                                 // Determine which list the model belongs to and toggle it
+                                                                 // Determine which list the model belongs to and toggle it using context setters
                                                                  if (modelProviders.some(p => p.models.includes(model))) {
                                                                      handleModelToggle(model, 'default');
                                                                  } else if (availableOpenRouterModels.includes(model)) {
@@ -685,7 +698,7 @@ export function Footer({ onSendMessage }: FooterProps) {
                                                             <ModelSelectionBox
                                                                 title="Default Models"
                                                                 providers={modelProviders}
-                                                                activeModels={activeModels}
+                                                                activeModels={activeDefaultModels} // Use context state
                                                                 onToggle={(model) => handleModelToggle(model, 'default')}
                                                                 onSelectAll={() => handleSelectAllModels('default')}
                                                                 onDeselectAll={() => handleDeselectAllModels('default')}
@@ -695,9 +708,9 @@ export function Footer({ onSendMessage }: FooterProps) {
                                                             <div className="flex items-center space-x-2 pt-4 border-t">
                                                                 <Switch
                                                                 id="openrouter-switch"
-                                                                checked={openRouterActive}
-                                                                onCheckedChange={setOpenRouterActive}
-                                                                disabled={isLoadingOpenRouterModels} // Disable while loading
+                                                                checked={openRouterActive} // Use context state
+                                                                onCheckedChange={setOpenRouterActive} // Use context setter
+                                                                disabled={isLoadingOpenRouterModels} // Use context state
                                                                 />
                                                                 <Label htmlFor="openrouter-switch" className={cn(isLoadingOpenRouterModels && "opacity-50")}>
                                                                     Activate OpenRouter Models {isLoadingOpenRouterModels && <Loader2 className="h-4 w-4 animate-spin inline ml-1" />}
@@ -714,9 +727,9 @@ export function Footer({ onSendMessage }: FooterProps) {
                                                                     ) : availableOpenRouterModels.length > 0 ? (
                                                                         <ModelSelectionBox
                                                                             title="OpenRouter Models"
-                                                                            // Use the fetched models, grouped under "OpenRouter"
+                                                                            // Use the fetched models from context
                                                                             providers={[{ provider: "OpenRouter", models: availableOpenRouterModels }]}
-                                                                            activeModels={activeOpenRouterModels}
+                                                                            activeModels={activeOpenRouterModels} // Use context state
                                                                             onToggle={(model) => handleModelToggle(model, 'openrouter')}
                                                                             onSelectAll={() => handleSelectAllModels('openrouter')}
                                                                             onDeselectAll={() => handleDeselectAllModels('openrouter')}
@@ -840,10 +853,10 @@ export function Footer({ onSendMessage }: FooterProps) {
 interface ModelSelectionBoxProps {
     title: string;
     providers: { provider: string; models: string[] }[];
-    activeModels: string[];
-    onToggle: (modelName: string) => void;
-    onSelectAll: () => void;
-    onDeselectAll: () => void;
+    activeModels: string[]; // Now comes from context
+    onToggle: (modelName: string) => void; // Triggers context update
+    onSelectAll: () => void; // Triggers context update
+    onDeselectAll: () => void; // Triggers context update
 }
 
 function ModelSelectionBox({ title, providers, activeModels, onToggle, onSelectAll, onDeselectAll }: ModelSelectionBoxProps) {
@@ -884,7 +897,7 @@ function ModelSelectionBox({ title, providers, activeModels, onToggle, onSelectA
                                                 <Checkbox
                                                     id={`${title}-${model}`} // Ensure unique ID based on title and model
                                                     checked={activeModels.includes(model)}
-                                                    onCheckedChange={() => onToggle(model)}
+                                                    onCheckedChange={() => onToggle(model)} // Directly uses the passed handler
                                                 />
                                                 <Label htmlFor={`${title}-${model}`} className="text-xs font-normal cursor-pointer"> {/* Added cursor-pointer */}
                                                     {model.split('/').pop()} {/* Show short name */}
@@ -904,14 +917,14 @@ function ModelSelectionBox({ title, providers, activeModels, onToggle, onSelectA
 
 // Helper component for Enabled Models Box in Settings
 interface EnabledModelsBoxProps {
-    allEnabledModels: string[];
-    activeModels: string[]; // Need original state to determine source
-    activeOpenRouterModels: string[]; // Need original state to determine source
-    onToggle: (modelName: string) => void;
+    allEnabledModels: string[]; // Derived from context
+    onToggle: (modelName: string) => void; // Triggers context update
 }
 
-function EnabledModelsBox({ allEnabledModels, activeModels, activeOpenRouterModels, onToggle }: EnabledModelsBoxProps) {
+function EnabledModelsBox({ allEnabledModels, onToggle }: EnabledModelsBoxProps) {
     const [isMinimized, setIsMinimized] = useState(false);
+     // Use context to get the detailed lists needed for grouping
+     const { activeDefaultModels, activeOpenRouterModels, availableOpenRouterModels } = useAppState();
 
     // Group models by provider for display
     const groupedEnabledModels = useMemo(() => {
@@ -925,14 +938,14 @@ function EnabledModelsBox({ allEnabledModels, activeModels, activeOpenRouterMode
             if (defaultProvider) {
                 providerName = defaultProvider.provider;
             }
-            // Check if it's an OpenRouter model (assuming they don't overlap with default list)
+            // Check if it's an *active* OpenRouter model
             else if (activeOpenRouterModels.includes(model)) {
-                providerName = "OpenRouter";
+                 providerName = "OpenRouter";
+             }
+            // Check if it's an *available* OpenRouter model (if active check fails)
+            else if (availableOpenRouterModels.includes(model)) {
+                 providerName = "OpenRouter"; // Still group under OR if somehow enabled but not in active list
             }
-            // More robust check if availableOpenRouterModels is passed and includes the model
-            // else if (availableOpenRouterModels.includes(model)) { // If you pass availableOpenRouterModels
-            //     providerName = "OpenRouter";
-            // }
 
 
             if (!groups[providerName]) {
@@ -941,9 +954,15 @@ function EnabledModelsBox({ allEnabledModels, activeModels, activeOpenRouterMode
             groups[providerName].push(model);
         });
         // Sort providers alphabetically, except maybe put 'OpenRouter' last?
-        return Object.entries(groups).sort(([providerA], [providerB]) => providerA.localeCompare(providerB));
+         return Object.entries(groups)
+            .sort(([providerA], [providerB]) => providerA.localeCompare(providerB))
+            .map(([provider, models]) => ({
+                provider,
+                models: models.sort((a, b) => (a.split('/').pop() || a).localeCompare(b.split('/').pop() || b)) // Sort models by display name
+            }));
 
-    }, [allEnabledModels, activeOpenRouterModels]); // Depend on the list of enabled models and OR list
+    // Include all dependencies that affect grouping
+    }, [allEnabledModels, activeOpenRouterModels, availableOpenRouterModels]);
 
     return (
         <Card className={cn(isMinimized && "overflow-hidden")}>
@@ -963,7 +982,7 @@ function EnabledModelsBox({ allEnabledModels, activeModels, activeOpenRouterMode
                             <p className="text-sm text-muted-foreground text-center py-4">No models enabled.</p>
                         ) : (
                             <div className="space-y-3">
-                                {groupedEnabledModels.map(([provider, models]) => (
+                                {groupedEnabledModels.map(({ provider, models }) => (
                                     <div key={provider}>
                                         <h4 className="text-sm font-medium mb-1">{provider}</h4>
                                         <div className="flex flex-col space-y-1">

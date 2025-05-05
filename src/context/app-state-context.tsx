@@ -4,7 +4,7 @@
 import React, { createContext, useState, useContext, ReactNode, Dispatch, SetStateAction, useEffect, useMemo } from 'react';
 
 // Initial list of default model providers and models
-// TODO: Ideally, fetch or centralize this list
+// TODO: Centralize this list or fetch it
 const defaultModelProviders = [
     {
       provider: "OpenAI",
@@ -101,39 +101,89 @@ export const AppStateProvider: React.FC<AppStateProviderProps> = ({ children }) 
     const [availableOpenRouterModels, setAvailableOpenRouterModels] = useState<string[]>([]);
     const [isLoadingOpenRouterModels, setIsLoadingOpenRouterModels] = useState<boolean>(false);
 
-    // Derive the list of all enabled models
+    // Derive the list of all enabled models using useMemo
     const enabledModels = useMemo(() => {
         return [...activeDefaultModels, ...activeOpenRouterModels].sort((a, b) => a.localeCompare(b)); // Sort alphabetically
     }, [activeDefaultModels, activeOpenRouterModels]);
 
-     // Effect to load settings from localStorage (similar to footer's logic)
+     // Effect to load settings from localStorage on initial mount
     useEffect(() => {
         if (typeof window !== 'undefined') {
             const savedSettings = localStorage.getItem('chatSettings');
             if (savedSettings) {
                 try {
                     const parsedSettings = JSON.parse(savedSettings);
-                    // Load model selections
+                    // Load model selections into context state
                     setActiveDefaultModels(parsedSettings.activeModels || allDefaultModels);
                     setActiveOpenRouterModels(parsedSettings.activeOpenRouterModels || []);
                     setOpenRouterActive(parsedSettings.openRouterActive || false);
-                    // Potentially load selectedModel as well if saved
-                    // setSelectedModel(parsedSettings.selectedModel || initialSelectedModel);
+                    // Potentially load selectedModel as well if saved and still enabled
+                    // Check if saved selectedModel is valid before setting
+                    const savedSelected = parsedSettings.selectedModel;
+                    const currentlyEnabled = [...(parsedSettings.activeModels || allDefaultModels), ...(parsedSettings.activeOpenRouterModels || [])];
+                    if (savedSelected && currentlyEnabled.includes(savedSelected)) {
+                        setSelectedModel(savedSelected);
+                    } else {
+                        // If saved model is invalid, set to first available or default
+                         setSelectedModel(currentlyEnabled[0] || initialSelectedModel);
+                    }
+
+                    // Apply UI settings directly (theme, text size, chat mode are handled in Footer now)
+                    // They could potentially be moved here if desired for centralization.
+
                 } catch (e) {
                     console.error("Failed to parse saved chat settings for AppState", e);
+                     // Fallback if parsing fails
+                    setActiveDefaultModels(allDefaultModels);
+                    setActiveOpenRouterModels([]);
+                    setOpenRouterActive(false);
+                    setSelectedModel(initialSelectedModel);
                 }
+            } else {
+                 // No saved settings, use defaults
+                 setActiveDefaultModels(allDefaultModels);
+                 setActiveOpenRouterModels([]);
+                 setOpenRouterActive(false);
+                 setSelectedModel(initialSelectedModel);
             }
         }
-    }, []);
+    }, []); // Empty dependency array ensures this runs only once on mount
 
-    // Effect to update selectedModel if it's no longer in the enabled list
+    // Effect to update selectedModel if it's no longer in the derived enabled list
     useEffect(() => {
-        if (!enabledModels.includes(selectedModel)) {
-            // If the current model is disabled, select the first available enabled model,
-            // or fallback to the initial default if none are enabled.
-            setSelectedModel(enabledModels[0] || initialSelectedModel);
+        // Ensure enabledModels has been calculated and the selected model isn't present
+        if (enabledModels.length > 0 && !enabledModels.includes(selectedModel)) {
+            // If the current model is disabled, select the first available enabled model.
+            setSelectedModel(enabledModels[0]);
+        } else if (enabledModels.length === 0 && selectedModel !== initialSelectedModel) {
+             // If no models are enabled, fallback to the initial default
+             setSelectedModel(initialSelectedModel);
         }
-    }, [enabledModels, selectedModel]);
+    }, [enabledModels, selectedModel]); // Depend on the derived list and the current selection
+
+    // Effect to save selectedModel to localStorage when it changes
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            const savedSettings = localStorage.getItem('chatSettings');
+            let settings = {};
+            if (savedSettings) {
+                try {
+                    settings = JSON.parse(savedSettings);
+                } catch (e) {
+                    console.error("Failed to parse existing settings before saving selectedModel", e);
+                }
+            }
+             try {
+                localStorage.setItem('chatSettings', JSON.stringify({
+                    ...settings,
+                    selectedModel: selectedModel, // Save the currently selected model
+                }));
+            } catch (e) {
+                console.error("Failed to save selectedModel to localStorage", e);
+            }
+        }
+    }, [selectedModel]); // Run whenever selectedModel changes
+
 
     const value = {
         selectedModel,
@@ -166,4 +216,3 @@ export const useAppState = (): AppStateContextProps => {
   }
   return context;
 };
-
