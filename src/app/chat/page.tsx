@@ -58,24 +58,54 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [username, setUsername] = useState<string>('User'); // Placeholder username
+  const [isSignedIn, setIsSignedIn] = useState<boolean | undefined>(undefined); // Track auth status
   const scrollAreaRef = useRef<HTMLDivElement>(null); // Ref for the scroll area viewport
   const messagesEndRef = useRef<HTMLDivElement>(null); // Ref for the bottom of the messages list
   const [nonImageFileWarningShown, setNonImageFileWarningShown] = useState(false); // Track if warning shown
 
   // Get username from Puter auth when component mounts
   useEffect(() => {
-    const fetchUser = async () => {
-      if (typeof window !== 'undefined' && window.puter?.auth?.isSignedIn && await window.puter.auth.isSignedIn()) {
+    const fetchUserAndStatus = async () => {
+      if (typeof window !== 'undefined' && window.puter?.auth) {
         try {
-          const user = await window.puter.auth.getUser();
-          setUsername(user.username || 'User');
+          const signedIn = await window.puter.auth.isSignedIn();
+          setIsSignedIn(signedIn);
+          if (signedIn) {
+            const user = await window.puter.auth.getUser();
+            setUsername(user.username || 'User');
+          } else {
+            setUsername('User'); // Reset to default if not signed in
+          }
         } catch (error) {
-          console.error("Error fetching Puter user:", error);
+          console.error("Error fetching Puter user/status:", error);
+          setIsSignedIn(false); // Assume not signed in on error
+          setUsername('User');
         }
+      } else {
+        // Handle case where Puter might not be loaded yet
+        setIsSignedIn(false);
+        setUsername('User');
       }
     };
-    fetchUser();
+    fetchUserAndStatus();
+
+    // Optional: Add listener for auth changes if Puter SDK supports it
+    // This depends on Puter.js v2 having an event listener for auth state changes
+    // Example hypothetical listener:
+    /*
+    const unsubscribe = window.puter?.auth?.onAuthStateChanged((user) => {
+      if (user) {
+        setIsSignedIn(true);
+        setUsername(user.username || 'User');
+      } else {
+        setIsSignedIn(false);
+        setUsername('User');
+      }
+    });
+    return () => unsubscribe?.(); // Cleanup listener on unmount
+    */
   }, []);
+
 
   // Load the most recent chat session on initial mount, or start empty
   useEffect(() => {
@@ -195,6 +225,8 @@ export default function ChatPage() {
   const handleSpeak = (text: string) => {
     console.log(`Speaking message: ${text}`);
     if ('speechSynthesis' in window) {
+        // Cancel any ongoing speech before starting new one
+        window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
         // Optional: Configure voice, rate, pitch here
         window.speechSynthesis.speak(utterance);
@@ -392,6 +424,24 @@ export default function ChatPage() {
     const hasFile = !!fileOrInfo;
 
     if (!trimmedInput && !hasFile) return; // Need either text or a file
+
+    // Prevent sending if not signed in (or status unknown)
+    if (isSignedIn === false) {
+      toast({
+        variant: "destructive",
+        title: "Sign In Required",
+        description: "Please sign in to send messages.",
+      });
+      return;
+    }
+     if (isSignedIn === undefined) {
+      toast({
+        variant: "destructive",
+        title: "Loading...",
+        description: "Checking authentication status. Please wait.",
+      });
+      return;
+    }
 
     let fileDataUri: string | undefined = undefined;
     let fileInfoForMessage: Message['fileInfo'] = undefined;
@@ -605,12 +655,12 @@ export default function ChatPage() {
          // Check if the error object has a specific structure indicating cancellation
          const isAuthCancelled = error?.code === 'auth_canceled' || error?.message?.toLowerCase().includes('cancel');
 
+        // Log the error *unless* it's a user cancellation
         if (!isAuthCancelled) {
-             // Log the full error object for better diagnostics only if it's not a cancellation
-             console.error("Puter AI chat error:", JSON.stringify(error, null, 2));
-         } else {
-             console.log("Puter authentication cancelled by user.");
-         }
+             console.error("Puter AI chat error:", error); // Log the raw error object
+        } else {
+             console.log("Puter authentication cancelled by user during chat attempt.");
+        }
 
         let errorMsg = "An unknown error occurred.";
 
@@ -629,12 +679,17 @@ export default function ChatPage() {
              } else if (error.message.includes("Input validation error") && error.message.includes("image")) {
                  errorMsg = `Selected model '${puterModelName}' does not support image input.`;
              }
+        } else if (typeof error === 'object' && error !== null && 'message' in error) {
+            // Handle cases where error is an object with a message (like the auth_canceled one)
+            errorMsg = (error as { message: string }).message || JSON.stringify(error);
         } else if (typeof error === 'string') {
              errorMsg = error;
-        } else if (typeof error === 'object' && error !== null && 'message' in error) {
-             errorMsg = (error as { message: string }).message || JSON.stringify(error);
         } else {
-             errorMsg = `An unexpected error occurred: ${JSON.stringify(error)}`;
+             try {
+                 errorMsg = `An unexpected error occurred: ${JSON.stringify(error)}`;
+             } catch {
+                 errorMsg = "An unexpected and unstringifiable error occurred.";
+             }
         }
 
 

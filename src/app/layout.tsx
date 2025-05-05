@@ -27,13 +27,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>{/* Ensure no whitespace directly inside */}
+    // Ensure no whitespace directly inside html tag
+    <html lang="en" suppressHydrationWarning>
       <head>
           {/* Add Puter.js script here */}
           <Script src="https://js.puter.com/v2/" strategy="beforeInteractive" />
       </head>
-      {/* Add suppressHydrationWarning to body */}
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`} suppressHydrationWarning>
+      {/* Remove suppressHydrationWarning from body, keep only on html */}
+      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
          <AppStateProvider> {/* Wrap children with the provider */}
            {children}
            <Toaster />
