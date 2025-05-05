@@ -150,7 +150,7 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
   // Use context for selected model and the list of enabled models
   const { selectedModel, setSelectedModel, enabledModels } = useAppState();
   const [activePage, setActivePage] = useState<NavItem | null>(null);
-  const [isSignedIn, setIsSignedIn] = useState<boolean>(false);
+  const [isSignedIn, setIsSignedIn] = useState<boolean | undefined>(undefined); // Start as undefined
   const [username, setUsername] = useState<string | null>(null);
   const [puterLoaded, setPuterLoaded] = useState<boolean>(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -159,17 +159,19 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
   // Group the enabled models from context for the dropdown
   const groupedEnabledModels = groupModelsByProvider(enabledModels);
 
-
-  const checkAuthStatus = useCallback(async (retryDelay = 300) => {
+  const checkAuthStatus = useCallback(async (retryCount = 0) => {
     // Ensure running on client
     if (typeof window === 'undefined') return;
 
     if (window.puter?.auth) {
-      if (!puterLoaded) setPuterLoaded(true); // Mark as loaded if auth object is present
+      if (!puterLoaded) {
+          console.log("Puter object loaded.");
+          setPuterLoaded(true); // Mark as loaded
+      }
       try {
         console.log("Checking Puter auth status...");
         const signedIn = await window.puter.auth.isSignedIn();
-        setIsSignedIn(signedIn);
+        setIsSignedIn(signedIn); // Update state
         if (signedIn) {
           const user: PuterUser = await window.puter.auth.getUser();
           setUsername(user.username);
@@ -180,27 +182,28 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
         }
       } catch (error) {
         console.error("Error checking Puter auth status:", error);
-        setIsSignedIn(false);
+        setIsSignedIn(false); // Assume not signed in on error
         setUsername(null);
       }
     } else {
-      // Optionally retry if Puter hasn't loaded yet
-      if (retryDelay < 5000) { // Limit retries
-        console.log(`Puter not loaded yet, retrying auth check in ${retryDelay}ms...`);
-        setTimeout(() => checkAuthStatus(retryDelay * 2), retryDelay); // Exponential backoff
+      // Optionally retry if Puter hasn't loaded yet, with a limit
+      if (retryCount < 5) {
+        const retryDelay = 300 * Math.pow(2, retryCount); // Exponential backoff
+        console.log(`Puter not loaded yet, retrying auth check in ${retryDelay}ms... (Attempt ${retryCount + 1})`);
+        setTimeout(() => checkAuthStatus(retryCount + 1), retryDelay);
       } else {
         console.error("Puter object or puter.auth not found after multiple retries.");
         setPuterLoaded(false); // Mark as not loaded if it fails repeatedly
+        setIsSignedIn(false); // Assume not signed in if Puter never loads
       }
     }
-  }, [puterLoaded]); // Depend on puterLoaded
-
+  }, [puterLoaded]); // Re-run if puterLoaded changes
 
   // Initial auth check on component mount
   useEffect(() => {
     checkAuthStatus();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Run only once on mount
+  }, [checkAuthStatus]); // Depend on the useCallback function
+
 
   useEffect(() => {
     const currentPathItem = navItems.find(item => pathname.startsWith(item.href));
@@ -217,55 +220,41 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
     console.log("Attempting sign in...");
 
     try {
-      // Prefer puter.ui.authenticateWithPuter for better UI, especially mobile
+      // Prefer puter.ui.authenticateWithPuter for better UI
       if (window.puter.ui?.authenticateWithPuter) {
         console.log("Trying puter.ui.authenticateWithPuter()...");
-        try {
-          await window.puter.ui.authenticateWithPuter();
-          console.log("authenticateWithPuter finished (or cancelled).");
-          // Wait a bit longer to allow potential redirects/popup closures, especially on mobile
-          await new Promise(resolve => setTimeout(resolve, 700));
-          console.log("Re-checking auth status after authenticateWithPuter.");
-          await checkAuthStatus(); // Check status after the UI interaction
-          return; // Exit if this method was attempted
-        } catch (authUiError: any) {
-          if (authUiError?.message?.toLowerCase().includes("cancel")) {
-            console.log("User cancelled authenticateWithPuter dialog.");
-            // No need to show error toast for cancellation
-          } else {
-            console.warn("puter.ui.authenticateWithPuter() failed:", authUiError);
-            console.log("Falling back to puter.auth.signIn()...");
-            // Proceed to the signIn block below if authenticateWithPuter fails for other reasons
-          }
-        }
-      } else {
+        await window.puter.ui.authenticateWithPuter();
+        console.log("authenticateWithPuter finished (or cancelled by user).");
+      } else if (window.puter.auth?.signIn) {
         console.log("puter.ui.authenticateWithPuter() not available, using puter.auth.signIn()...");
-      }
-
-      // Fallback or primary method if authenticateWithPuter isn't available or failed/cancelled
-      if (window.puter.auth?.signIn) {
-        console.log("Trying puter.auth.signIn()...");
-        // signIn doesn't return the user, it just resolves when done
         await window.puter.auth.signIn();
         console.log("puter.auth.signIn() finished (or popup closed).");
-        // Wait a bit longer for potential redirects/popup closures
-        await new Promise(resolve => setTimeout(resolve, 700));
-        console.log("Re-checking auth status after signIn.");
-        await checkAuthStatus(); // Check status after signIn attempt
       } else {
-        console.error("Puter auth.signIn method not found!");
-        toast({ variant: "destructive", title: "Error", description: "Sign in function not available." });
+         console.error("Puter auth methods (authenticateWithPuter, signIn) not found!");
+         toast({ variant: "destructive", title: "Error", description: "Sign in function not available." });
+         return; // Exit if no auth method found
       }
 
+      // Wait slightly longer to allow for potential redirects/state changes
+      await new Promise(resolve => setTimeout(resolve, 800));
+      console.log("Re-checking auth status after authentication attempt.");
+      await checkAuthStatus(); // Check status again after the attempt
+
     } catch (error: any) {
-      console.error("General sign in error caught:", error);
-      // Avoid showing error toast for user cancellations
-      if (!(error?.message?.toLowerCase().includes("cancel"))) {
-        toast({ variant: "destructive", title: "Sign In Failed", description: "An error occurred during sign in. Please try again." });
+       // Check specifically for cancellation errors
+      const isCancellation = error?.message?.toLowerCase().includes("cancel") || error?.code === 'auth_canceled';
+
+      if (isCancellation) {
+         console.log("User cancelled the authentication process.");
+         // No need for an error toast if the user cancelled
+      } else {
+         console.error("Sign in error caught:", error);
+         toast({ variant: "destructive", title: "Sign In Failed", description: "An error occurred during sign in. Please try again." });
       }
-      // Ensure status is checked even on error after a delay
+
+      // Ensure status is checked even on error/cancellation after a small delay
       await new Promise(resolve => setTimeout(resolve, 500));
-      console.log("Re-checking auth status after general sign-in error.");
+      console.log("Re-checking auth status after sign-in attempt resulted in error or cancellation.");
       await checkAuthStatus();
     }
   };
@@ -316,9 +305,9 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
       <div className="container flex h-14 items-center justify-between max-w-screen-2xl px-4 md:px-6">
 
         {/* Left side: Authentication */}
-        <div className="flex items-center space-x-2">
-          {!puterLoaded ? (
-            <Button variant="outline" size="sm" disabled>Loading...</Button>
+        <div className="flex items-center space-x-2 min-w-[150px]"> {/* Added min-width */}
+          {isSignedIn === undefined ? ( // Show loading state until status is known
+            <Button variant="outline" size="sm" disabled>Loading Auth...</Button>
           ) : isSignedIn ? (
             <div className="flex items-center space-x-2">
               <div className="flex flex-col items-start text-xs">
@@ -336,7 +325,7 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
         </div>
 
         {/* Center: App Title or Model Selector */}
-        <div className="flex items-center">
+        <div className="flex items-center justify-center flex-grow"> {/* Added flex-grow and justify-center */}
           {isChatPage ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -378,7 +367,7 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
 
 
         {/* Right side: Page Switcher & Settings */}
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-2 min-w-[150px] justify-end"> {/* Added min-width and justify-end */}
           <TooltipProvider delayDuration={100}>
             {/* Page Switcher Dialog */}
             <Dialog open={isPageSwitcherOpen} onOpenChange={setIsPageSwitcherOpen}>
