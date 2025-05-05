@@ -40,6 +40,7 @@ import {
 import { cn } from '@/lib/utils';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAppState } from '@/context/app-state-context'; // Import the context hook
+import { useIsMobile } from '@/hooks/use-mobile'; // Import mobile hook
 
 // Define Puter types locally to avoid TS errors if library isn't loaded server-side
 declare global {
@@ -147,6 +148,7 @@ interface AppHeaderProps {
 export function AppHeader({ currentPageName }: AppHeaderProps) {
   const router = useRouter();
   const pathname = usePathname();
+  const isMobile = useIsMobile(); // Check if mobile
   // Use context for selected model and the list of enabled models
   const { selectedModel, setSelectedModel, enabledModels } = useAppState();
   const [activePage, setActivePage] = useState<NavItem | null>(null);
@@ -219,24 +221,34 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
 
     console.log("Attempting sign in...");
 
-    try {
-      // Prefer puter.ui.authenticateWithPuter for better UI
-      if (window.puter.ui?.authenticateWithPuter) {
-        console.log("Trying puter.ui.authenticateWithPuter()...");
-        await window.puter.ui.authenticateWithPuter();
-        console.log("authenticateWithPuter finished (or cancelled by user).");
-      } else if (window.puter.auth?.signIn) {
-        console.log("puter.ui.authenticateWithPuter() not available, using puter.auth.signIn()...");
-        await window.puter.auth.signIn();
-        console.log("puter.auth.signIn() finished (or popup closed).");
-      } else {
-         console.error("Puter auth methods (authenticateWithPuter, signIn) not found!");
-         toast({ variant: "destructive", title: "Error", description: "Sign in function not available." });
-         return; // Exit if no auth method found
-      }
+    // Use puter.ui.authenticateWithPuter on desktop, puter.auth.signIn on mobile
+    const authMethod = !isMobile && window.puter.ui?.authenticateWithPuter
+        ? window.puter.ui.authenticateWithPuter
+        : window.puter.auth?.signIn;
 
-      // Wait slightly longer to allow for potential redirects/state changes
-      await new Promise(resolve => setTimeout(resolve, 800));
+     const authMethodName = !isMobile && window.puter.ui?.authenticateWithPuter
+         ? 'puter.ui.authenticateWithPuter'
+         : 'puter.auth.signIn';
+
+
+    if (!authMethod) {
+         console.error(`Puter auth method (${authMethodName}) not found!`);
+         toast({ variant: "destructive", title: "Error", description: "Sign in function not available." });
+         return;
+    }
+
+    try {
+      console.log(`Trying ${authMethodName}()...`);
+      // Call the selected authentication method
+      await authMethod();
+      // The promise resolves when the dialog/popup is closed or auth completes.
+      // It doesn't guarantee success, only that the flow finished.
+      console.log(`${authMethodName} finished (or cancelled by user).`);
+
+      // Wait slightly longer AFTER the promise resolves to allow Puter's internal state
+      // and potential redirects/refreshes to settle before checking status.
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Increased delay
+
       console.log("Re-checking auth status after authentication attempt.");
       await checkAuthStatus(); // Check status again after the attempt
 
@@ -249,7 +261,7 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
          // No need for an error toast if the user cancelled
       } else {
          console.error("Sign in error caught:", error);
-         toast({ variant: "destructive", title: "Sign In Failed", description: "An error occurred during sign in. Please try again." });
+         toast({ variant: "destructive", title: "Sign In Failed", description: `An error occurred: ${error.message || 'Unknown error'}. Please try again.` });
       }
 
       // Ensure status is checked even on error/cancellation after a small delay
@@ -311,6 +323,7 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
           ) : isSignedIn ? (
             <div className="flex items-center space-x-2">
               <div className="flex flex-col items-start text-xs">
+                {/* Add border to username */}
                 <span className="font-medium text-foreground border border-border rounded-md px-2 py-1">{username || 'User'}</span>
                 <Button variant="ghost" size="sm" onClick={handleSignOut} className="h-auto p-0 text-muted-foreground hover:text-destructive mt-1">
                   <LogOut className="mr-1 h-3 w-3" /> Sign Out
@@ -524,3 +537,4 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
   );
 }
 
+// Removed duplicate useIsMobile function as it's imported from hooks/use-mobile
