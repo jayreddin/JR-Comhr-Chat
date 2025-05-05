@@ -196,7 +196,7 @@ export function Footer({ onSendMessage }: FooterProps) {
     const requestMicPermission = useCallback(async () => {
         if (hasMicPermission !== null) return hasMicPermission; // Return existing status if already checked/set
 
-        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        if (typeof window !== 'undefined' && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
             try {
                 await navigator.mediaDevices.getUserMedia({ audio: true });
                 setHasMicPermission(true);
@@ -376,13 +376,7 @@ export function Footer({ onSendMessage }: FooterProps) {
 
     const handleSaveSettings = () => {
         console.log("Saving chat settings:", { theme, textSize, chatMode, activeModels, openRouterActive, activeOpenRouterModels });
-        // 1. Apply theme
-         document.documentElement.classList.toggle('dark', theme === 'dark');
-         // Apply text size
-        document.documentElement.style.setProperty('--chat-text-size', `${textSize}px`);
-        // Apply chat mode (if CSS is set up for it)
-        // document.body.dataset.chatMode = chatMode;
-
+        // 1. Apply settings (already applied live)
         // 2. Save settings to local storage
         try {
             localStorage.setItem('chatSettings', JSON.stringify({
@@ -392,39 +386,62 @@ export function Footer({ onSendMessage }: FooterProps) {
                 activeModels,
                 openRouterActive,
                 activeOpenRouterModels,
-                // Note: We don't save the full list of available OR models, just the active ones
             }));
             setIsChatSettingsOpen(false); // Close dialog
-            toast({ title: "Settings Saved", description: "Chat settings have been updated." });
+            toast({ title: "Settings Saved", description: "Chat settings have been saved." });
         } catch (e) {
             console.error("Failed to save chat settings to localStorage", e);
             toast({ variant: "destructive", title: "Save Error", description: "Could not save settings." });
         }
     };
 
+     // Apply theme instantly
+     useEffect(() => {
+         if (typeof window !== 'undefined') {
+            document.documentElement.classList.toggle('dark', theme === 'dark');
+         }
+     }, [theme]);
+
+     // Apply text size instantly
+     useEffect(() => {
+         if (typeof window !== 'undefined') {
+            document.documentElement.style.setProperty('--chat-text-size', `${textSize}px`);
+         }
+     }, [textSize]);
+
+     // Apply chat mode instantly (if CSS is set up for it)
+     useEffect(() => {
+        if (typeof window !== 'undefined') {
+            // Example: document.body.dataset.chatMode = chatMode;
+            console.log("Chat mode changed to:", chatMode); // Placeholder
+        }
+     }, [chatMode]);
+
 
      // Load settings on mount
     useEffect(() => {
-        const savedSettings = localStorage.getItem('chatSettings');
-        if (savedSettings) {
-            try {
-                const parsedSettings = JSON.parse(savedSettings);
-                setTheme(parsedSettings.theme || 'light');
-                setTextSize(parsedSettings.textSize || 14);
-                setChatMode(parsedSettings.chatMode || 'normal');
-                setActiveModels(parsedSettings.activeModels || modelProviders.flatMap(p => p.models));
-                // Set activeOpenRouterModels before setting openRouterActive to avoid race conditions
-                setActiveOpenRouterModels(parsedSettings.activeOpenRouterModels || []);
-                setOpenRouterActive(parsedSettings.openRouterActive || false);
+        if (typeof window !== 'undefined') {
+            const savedSettings = localStorage.getItem('chatSettings');
+            if (savedSettings) {
+                try {
+                    const parsedSettings = JSON.parse(savedSettings);
+                    setTheme(parsedSettings.theme || 'light');
+                    setTextSize(parsedSettings.textSize || 14);
+                    setChatMode(parsedSettings.chatMode || 'normal');
+                    setActiveModels(parsedSettings.activeModels || modelProviders.flatMap(p => p.models));
+                    // Set activeOpenRouterModels before setting openRouterActive to avoid race conditions
+                    setActiveOpenRouterModels(parsedSettings.activeOpenRouterModels || []);
+                    setOpenRouterActive(parsedSettings.openRouterActive || false);
 
-                 // Apply loaded settings immediately
-                document.documentElement.classList.toggle('dark', parsedSettings.theme === 'dark');
-                document.documentElement.style.setProperty('--chat-text-size', `${parsedSettings.textSize || 14}px`);
-                 // Apply chat mode if needed
-                 // document.body.dataset.chatMode = parsedSettings.chatMode || 'normal';
+                     // Apply loaded settings immediately (redundant due to individual useEffects but good for initial load)
+                    document.documentElement.classList.toggle('dark', parsedSettings.theme === 'dark');
+                    document.documentElement.style.setProperty('--chat-text-size', `${parsedSettings.textSize || 14}px`);
+                     // Apply chat mode if needed
+                     // document.body.dataset.chatMode = parsedSettings.chatMode || 'normal';
 
-            } catch (e) {
-                console.error("Failed to parse saved chat settings", e);
+                } catch (e) {
+                    console.error("Failed to parse saved chat settings", e);
+                }
             }
         }
         // Load chat history placeholder (replace with actual loading logic)
