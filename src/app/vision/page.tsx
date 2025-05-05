@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Upload, Camera, Monitor, Mic as MicIcon, AlertCircle, KeyRound } from 'lucide-react'; // Added KeyRound
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label'; // Import Label
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { format } from 'date-fns';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -33,7 +34,7 @@ interface Message {
 }
 
 // Define the model name constant
-const GEMINI_MODEL_NAME = "gemini-1.5-flash-latest"; // Corrected model name based on error
+const GEMINI_MODEL_NAME = "gemini-1.5-flash-latest"; // Corrected model name based on Gemini API docs
 
 export default function VisionPage() {
     const [apiKey, setApiKey] = useState<string | null>(null);
@@ -659,7 +660,7 @@ export default function VisionPage() {
                         {/* Placeholder when no messages */}
                         {messages.length === 0 && !isLoading && (
                              <p className="text-sm text-muted-foreground text-center p-4">
-                                {apiKey ? 'Activate a source (Camera, Screen, or Audio) or start chatting below.' : 'Enter your Gemini API key to start chatting.'}
+                                {apiKey ? 'Start chatting below.' : 'Enter your Gemini API key to start chatting.'}
                              </p>
                         )}
                         {/* Div to mark the end of messages for scrolling */}
