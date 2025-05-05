@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -201,9 +200,12 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
     }
   }, [puterLoaded]); // Re-run if puterLoaded changes
 
-  // Initial auth check on component mount
+  // Initial auth check on component mount with a small delay
   useEffect(() => {
-    checkAuthStatus();
+    const timer = setTimeout(() => {
+      checkAuthStatus();
+    }, 200); // Add a small delay (e.g., 200ms) before the first check
+    return () => clearTimeout(timer); // Cleanup timer on unmount
   }, [checkAuthStatus]); // Depend on the useCallback function
 
 
@@ -212,7 +214,7 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
     setActivePage(currentPathItem || null);
   }, [pathname]);
 
- const handleSignIn = async () => {
+  const handleSignIn = async () => {
     if (typeof window === 'undefined' || !window.puter) {
       toast({ variant: "destructive", title: "Error", description: "Authentication service not ready. Please wait a moment and try again." });
       console.error("Puter library not loaded or window not available.");
@@ -221,53 +223,41 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
 
     console.log("Attempting sign in...");
 
-    // Use puter.ui.authenticateWithPuter on desktop, puter.auth.signIn on mobile
-    const authMethod = !isMobile && window.puter.ui?.authenticateWithPuter
-        ? window.puter.ui.authenticateWithPuter
-        : window.puter.auth?.signIn;
-
-     const authMethodName = !isMobile && window.puter.ui?.authenticateWithPuter
-         ? 'puter.ui.authenticateWithPuter'
-         : 'puter.auth.signIn';
-
+    // Use puter.auth.signIn() for both desktop and mobile for consistency with popup flow
+    const authMethod = window.puter.auth?.signIn;
+    const authMethodName = 'puter.auth.signIn';
 
     if (!authMethod) {
-         console.error(`Puter auth method (${authMethodName}) not found!`);
-         toast({ variant: "destructive", title: "Error", description: "Sign in function not available." });
-         return;
+        console.error(`Puter auth method (${authMethodName}) not found!`);
+        toast({ variant: "destructive", title: "Error", description: "Sign in function not available." });
+        return;
     }
 
     try {
-      console.log(`Trying ${authMethodName}()...`);
-      // Call the selected authentication method
-      await authMethod();
-      // The promise resolves when the dialog/popup is closed or auth completes.
-      // It doesn't guarantee success, only that the flow finished.
-      console.log(`${authMethodName} finished (or cancelled by user).`);
+        console.log(`Trying ${authMethodName}()...`);
+        // Call the authentication method - it returns a promise that resolves on successful sign-in.
+        // It does not directly return user info but signals completion.
+        await authMethod();
+        console.log(`${authMethodName} finished successfully.`);
 
-      // Wait slightly longer AFTER the promise resolves to allow Puter's internal state
-      // and potential redirects/refreshes to settle before checking status.
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Increased delay
+        // Wait slightly AFTER the promise resolves to allow Puter's internal state
+        // and potential redirects/refreshes to settle before checking status.
+        await new Promise(resolve => setTimeout(resolve, 500)); // Reduced delay slightly
 
-      console.log("Re-checking auth status after authentication attempt.");
-      await checkAuthStatus(); // Check status again after the attempt
+        console.log("Re-checking auth status after successful authentication attempt.");
+        await checkAuthStatus(); // Check status again after the attempt
 
     } catch (error: any) {
-       // Check specifically for cancellation errors
-      const isCancellation = error?.message?.toLowerCase().includes("cancel") || error?.code === 'auth_canceled';
+        // signIn() promise should technically never reject according to docs, but handle potential errors/cancellations if the flow is interrupted.
+        // The user cancelling the popup might not cause a rejection, the promise just might not resolve.
+        // However, if there's an underlying issue or unexpected behavior, catch it.
+        console.error("Sign in error caught or process interrupted:", error);
+        toast({ variant: "destructive", title: "Sign In Issue", description: `An issue occurred during sign in: ${error.message || 'Process interrupted or unknown error'}. Please try again.` });
 
-      if (isCancellation) {
-         console.log("User cancelled the authentication process.");
-         // No need for an error toast if the user cancelled
-      } else {
-         console.error("Sign in error caught:", error);
-         toast({ variant: "destructive", title: "Sign In Failed", description: `An error occurred: ${error.message || 'Unknown error'}. Please try again.` });
-      }
-
-      // Ensure status is checked even on error/cancellation after a small delay
-      await new Promise(resolve => setTimeout(resolve, 500));
-      console.log("Re-checking auth status after sign-in attempt resulted in error or cancellation.");
-      await checkAuthStatus();
+        // Re-check status even on error/interruption after a small delay
+        await new Promise(resolve => setTimeout(resolve, 500));
+        console.log("Re-checking auth status after sign-in attempt resulted in error or interruption.");
+        await checkAuthStatus();
     }
   };
 
@@ -536,5 +526,3 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
     </header>
   );
 }
-
-// Removed duplicate useIsMobile function as it's imported from hooks/use-mobile
