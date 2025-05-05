@@ -59,7 +59,7 @@ export default function ChatPage() {
   const [username, setUsername] = useState<string>('User'); // Placeholder username
   const scrollAreaRef = useRef<HTMLDivElement>(null); // Ref for the scroll area viewport
   const messagesEndRef = useRef<HTMLDivElement>(null); // Ref for the bottom of the messages list
-  let puterModelName: string = ''; // Declare variable outside try block
+  const [nonImageFileWarningShown, setNonImageFileWarningShown] = useState(false); // Track if warning shown
 
   // Get username from Puter auth when component mounts
   useEffect(() => {
@@ -247,6 +247,7 @@ export default function ChatPage() {
 
     // 2. Clear current messages state
     setMessages([]);
+    setNonImageFileWarningShown(false); // Reset warning flag
 
     // 3. Optional: Reset any other relevant state (e.g., input field is handled by Footer)
   };
@@ -261,6 +262,7 @@ export default function ChatPage() {
               const sessionData: SavedChatSession = JSON.parse(sessionDataJSON);
               // Load messages. If previews were removed during save, they won't be present.
               setMessages(sessionData.messages);
+               setNonImageFileWarningShown(false); // Reset warning flag on load
               if (showToast) {
                  toast({ title: "Chat Restored", description: `Loaded session "${sessionData.name}".` });
               }
@@ -304,30 +306,39 @@ export default function ChatPage() {
 
     let fileDataUri: string | undefined = undefined;
     let fileInfoForMessage: Message['fileInfo'] = undefined;
+    let textToSend = trimmedInput; // Start with the user's typed text
 
     // Handle file processing
     if (file) {
+        const isImage = file.type.startsWith('image/');
         try {
-            fileDataUri = await fileToDataUri(file);
+            if (isImage) {
+                fileDataUri = await fileToDataUri(file); // Generate data URI only for images
+            }
             fileInfoForMessage = {
                 name: file.name,
                 type: file.type,
-                previewUrl: file.type.startsWith('image/') ? fileDataUri : undefined // Only store preview for images
+                previewUrl: isImage ? fileDataUri : undefined // Store preview URI only for images
             };
+
+            // Prepend file information to the text prompt for the AI
+            textToSend = `[File Attached: ${file.name} (${file.type}, ${Math.round(file.size / 1024)} KB)]\n\n${trimmedInput}`;
+
         } catch (error) {
-            console.error("Error converting file to Data URI:", error);
-            toast({ variant: "destructive", title: "File Error", description: "Could not process the attached file." });
+            console.error("Error processing file:", error);
+            toast({ variant: "destructive", title: "File Error", description: `Could not process the attached file: ${file.name}` });
             return; // Stop sending if file processing fails
         }
     }
+
 
     const userMessage: Message = {
       id: `user-${Date.now()}`,
       sender: 'user',
       name: username, // Use the fetched username
-      text: trimmedInput,
+      text: trimmedInput, // Keep the original user text visually separate
       timestamp: Date.now(),
-      fileInfo: fileInfoForMessage, // Add file info to the message
+      fileInfo: fileInfoForMessage, // Add file info to the message object
     };
     // Add user message to the beginning for newest-first display
     setMessages((prevMessages) => [userMessage, ...prevMessages]);
@@ -335,6 +346,7 @@ export default function ChatPage() {
     // No need to scrollToBottom immediately if newest is at top
 
     let aiMessageId = ''; // Keep track of the AI message ID for this request
+    let puterModelName = selectedModel; // Assign selected model name
 
     // --- Puter.js AI Call ---
     if (typeof window !== 'undefined' && window.puter?.ai?.chat) {
@@ -345,9 +357,9 @@ export default function ChatPage() {
             id: aiMessageId,
             sender: 'ai',
             // Get model name, remove prefix for display
-            name: selectedModel.startsWith('openrouter:')
-                ? selectedModel.substring('openrouter:'.length).split('/').pop() || selectedModel
-                : selectedModel.split('/').pop() || selectedModel,
+            name: puterModelName.startsWith('openrouter:')
+                ? puterModelName.substring('openrouter:'.length).split('/').pop() || puterModelName
+                : puterModelName.split('/').pop() || puterModelName,
             text: '...', // Placeholder text
             timestamp: Date.now()
         };
@@ -355,35 +367,43 @@ export default function ChatPage() {
         setMessages((prevMessages) => [placeholderAiMessage, ...prevMessages]);
         // No scroll needed if newest is at top
 
-
-        puterModelName = selectedModel; // Assign here
-
         console.log(`Using model for Puter API call: ${puterModelName}`);
+        console.log(`Text being sent to AI: ${textToSend}`); // Log the actual text sent
+
 
          // Prepare arguments for puter.ai.chat
-         const chatArgs: any[] = [trimmedInput];
+         const chatArgs: any[] = [textToSend]; // Send the combined text (file info + user input)
          const chatOptions: { model: string; stream: boolean; image?: string } = {
              model: puterModelName,
              stream: true,
          };
 
          // Add image data URI if available and model supports vision
-         // Basic check: Assume models containing 'vision' or 'gpt-4o' support images
-         // More robust check needed for specific model capabilities
-         const modelSupportsVision = puterModelName.includes('vision') || puterModelName.includes('gpt-4o') || puterModelName.includes('claude-3') || puterModelName.includes('gemini'); // Add other vision models
+         // Basic check: Assume models containing 'vision', 'gpt-4o', 'claude-3', 'gemini', 'qwen', 'phi-4' support images
+         const modelSupportsVision = puterModelName.includes('vision')
+            || puterModelName.includes('gpt-4o')
+            || puterModelName.includes('claude-3')
+            || puterModelName.includes('gemini')
+            || puterModelName.includes('qwen') // Added Qwen
+            || puterModelName.includes('phi-4'); // Added Phi-4
+
 
          if (fileDataUri && fileInfoForMessage?.type.startsWith('image/') && modelSupportsVision) {
              chatOptions.image = fileDataUri;
              console.log("Sending image to vision model.");
+         } else if (file && !fileInfoForMessage?.type.startsWith('image/')) {
+             // Non-image file attached
+             console.warn("Attached file is not an image. It will not be sent visually to the AI, but its info is in the text prompt.");
+             if (!nonImageFileWarningShown) { // Show toast only once per session
+                toast({ title: "Info", description: "Only image files can be sent visually to the AI. The attached file's info is included in the text prompt." });
+                setNonImageFileWarningShown(true);
+             }
          } else if (fileDataUri && !modelSupportsVision) {
-             console.warn("File attached, but selected model may not support vision.");
-             // Optionally, don't send the image or show a warning
-             // For now, we proceed without the image if model doesn't support it
-             toast({ title: "Warning", description: "File attached, but the selected model might not support image input." });
-         } else if (fileDataUri && !fileInfoForMessage?.type.startsWith('image/')) {
-              console.warn("Attached file is not an image. It will not be sent to the AI.");
-              toast({ title: "Info", description: "Only image files can be sent to the AI. The attached file was ignored." });
-              // Clear file info from the user message visually? Or leave it? Leaving it for now.
+              console.warn("Image file attached, but selected model may not support vision.");
+              if (!nonImageFileWarningShown) { // Show toast only once per session
+                 toast({ title: "Warning", description: "Image file attached, but the selected model might not support image input. Image data will be ignored." });
+                 setNonImageFileWarningShown(true);
+              }
          }
 
          chatArgs.push(chatOptions);
@@ -615,5 +635,3 @@ export default function ChatPage() {
     </PageLayout>
   );
 }
-
-    
