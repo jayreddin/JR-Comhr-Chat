@@ -26,6 +26,7 @@ interface Message {
       name: string;
       type: string; // e.g., 'image/png'
       previewUrl?: string; // Data URI for image preview
+      content?: string; // Text content for non-image files
   };
 }
 
@@ -133,7 +134,7 @@ export default function ChatPage() {
         setMessages(messagesWithoutOldResponse); // Update state before sending
         // Re-trigger send logic - Check if there was a file attached originally
         // For simplicity now, we won't resend the file automatically. Need File object access again.
-        handleSendMessage(messageToResend.text);
+        handleSendMessage(messageToResend.text, messageToResend.fileInfo); // Pass fileInfo if it exists
     } else if (messageToResend.sender === 'ai') {
         // Logic to regenerate AI response
         // Find the succeeding user message (which is chronologically *after* the AI message,
@@ -145,8 +146,8 @@ export default function ChatPage() {
             const messagesWithoutCurrentAi = messages.filter((_, idx) => idx !== messageIndex);
             setMessages(messagesWithoutCurrentAi);
             // Resend the user message that prompted this AI response
-            // Again, file handling on resend needs more logic if the original user message had a file
-            handleSendMessage(succeedingUserMessage.text);
+            // Pass fileInfo if it exists on the user message
+            handleSendMessage(succeedingUserMessage.text, succeedingUserMessage.fileInfo);
         } else {
              // If it's the very first message (AI greeting maybe?) or no user message follows
              // This logic might need adjustment based on desired behavior for regenerating greetings etc.
@@ -167,6 +168,28 @@ export default function ChatPage() {
     toast({ title: "Deleted", description: "Message removed from view." });
     // Note: This only deletes from the current view, not from saved history yet.
     // To make deletion permanent, update the saved session in localStorage as well.
+    // Find the current session ID (assuming the most recent is the active one)
+     if (typeof window !== 'undefined') {
+         const sessionListJSON = localStorage.getItem('chatSessionList');
+         if (sessionListJSON) {
+             try {
+                 const sessionList: ChatSessionInfo[] = JSON.parse(sessionListJSON);
+                 sessionList.sort((a, b) => b.timestamp - a.timestamp);
+                 if (sessionList.length > 0) {
+                     const currentSessionId = sessionList[0].id;
+                     const sessionDataJSON = localStorage.getItem(currentSessionId);
+                     if (sessionDataJSON) {
+                         const sessionData: SavedChatSession = JSON.parse(sessionDataJSON);
+                         sessionData.messages = sessionData.messages.filter(msg => msg.id !== messageId);
+                         localStorage.setItem(currentSessionId, JSON.stringify(sessionData));
+                         console.log(`Message ${messageId} deleted from saved session ${currentSessionId}`);
+                     }
+                 }
+             } catch (error) {
+                 console.error("Error updating saved session after delete:", error);
+             }
+         }
+     }
   };
 
   const handleSpeak = (text: string) => {
@@ -186,59 +209,81 @@ export default function ChatPage() {
 
     // 1. Save current messages (if any)
     if (messages.length > 0) {
-        const sessionId = `chat-${Date.now()}`;
-        // Create a preview name (e.g., first few words of the first user message or generic name)
-        const firstUserMessage = [...messages].reverse().find(msg => msg.sender === 'user'); // Find chronological first user message
-        const previewName = firstUserMessage
-            ? `${firstUserMessage.text.substring(0, 30)}...`
-            : `Chat ${format(Date.now(), 'yyyy-MM-dd HH:mm')}`;
+         // Check if the current messages belong to an existing saved session
+         const sessionListJSON = localStorage.getItem('chatSessionList');
+         let currentSessionId: string | null = null;
+         let sessionList: ChatSessionInfo[] = [];
+         let sessionName = `Chat ${format(Date.now(), 'yyyy-MM-dd HH:mm')}`; // Default new name
+
+         if (sessionListJSON) {
+             try {
+                 sessionList = JSON.parse(sessionListJSON);
+                 sessionList.sort((a, b) => b.timestamp - a.timestamp); // Newest first
+                 // Assume the most recent session in the list is the one currently being viewed
+                 if (sessionList.length > 0) {
+                     currentSessionId = sessionList[0].id;
+                     sessionName = sessionList[0].name; // Use existing name if updating
+                 }
+             } catch (e) {
+                 console.error("Error parsing chat session list during save, starting fresh.", e);
+                 sessionList = [];
+                 currentSessionId = null; // Treat as a new session if list is corrupt
+             }
+         }
+
+         // If no currentSessionId, generate a new one
+         if (!currentSessionId) {
+             currentSessionId = `chat-${Date.now()}`;
+         } else {
+              // If updating, use the existing name unless it's the default placeholder
+               const existingSessionInfo = sessionList.find(s => s.id === currentSessionId);
+              if (existingSessionInfo && !existingSessionInfo.name.startsWith("Chat ")) {
+                   sessionName = existingSessionInfo.name;
+              } else {
+                   // Try to generate a better preview name if possible
+                    const firstUserMessage = [...messages].reverse().find(msg => msg.sender === 'user');
+                   sessionName = firstUserMessage
+                       ? `${firstUserMessage.text.substring(0, 30)}...`
+                       : `Chat ${format(Date.now(), 'yyyy-MM-dd HH:mm')}`;
+              }
+         }
+
 
         const sessionData: SavedChatSession = {
-            id: sessionId,
-            name: previewName,
-            timestamp: Date.now(),
-            // Ensure message previews (Data URIs) are saved if needed, or remove them to save space
+            id: currentSessionId,
+            name: sessionName,
+            timestamp: Date.now(), // Always update timestamp on save/new
+            // Ensure message previews (Data URIs) and content are saved
             messages: messages.map(msg => ({
                 ...msg,
-                // Optionally remove large previewUrl before saving to localStorage
-                // fileInfo: msg.fileInfo ? { ...msg.fileInfo, previewUrl: undefined } : undefined
+                // Keep fileInfo, including content and previewUrl if present
             }))
         };
 
         try {
             // Save the full session data
-            localStorage.setItem(sessionId, JSON.stringify(sessionData));
+            localStorage.setItem(currentSessionId, JSON.stringify(sessionData));
 
-            // Update the session list
-            const sessionListJSON = localStorage.getItem('chatSessionList');
-            let sessionList: ChatSessionInfo[] = [];
-            if (sessionListJSON) {
-                try {
-                    sessionList = JSON.parse(sessionListJSON);
-                } catch (e) {
-                    console.error("Error parsing chat session list, resetting.", e);
-                    sessionList = []; // Reset if corrupted
-                }
+            // Update the session list (add if new, update timestamp if existing)
+            const existingIndex = sessionList.findIndex(s => s.id === currentSessionId);
+            const newSessionInfo: ChatSessionInfo = { id: currentSessionId, name: sessionName, timestamp: sessionData.timestamp };
+
+            if (existingIndex > -1) {
+                sessionList[existingIndex] = newSessionInfo; // Update existing entry
+            } else {
+                sessionList.push(newSessionInfo); // Add new entry
             }
-            // Add new session info to the list (or update if ID somehow exists?)
-             const existingIndex = sessionList.findIndex(s => s.id === sessionId);
-             const newSessionInfo: ChatSessionInfo = { id: sessionId, name: previewName, timestamp: sessionData.timestamp };
-             if (existingIndex > -1) {
-                 sessionList[existingIndex] = newSessionInfo; // Update existing (unlikely)
-             } else {
-                 sessionList.push(newSessionInfo);
-             }
-             // Optional: Limit history size
-             // sessionList.sort((a, b) => b.timestamp - a.timestamp); // Sort newest first
-             // sessionList = sessionList.slice(0, 50); // Keep only latest 50 sessions
+            // Sort and limit history size
+            sessionList.sort((a, b) => b.timestamp - a.timestamp); // Sort newest first
+            // sessionList = sessionList.slice(0, 50); // Optional: Keep only latest 50 sessions
 
-             localStorage.setItem('chatSessionList', JSON.stringify(sessionList));
+            localStorage.setItem('chatSessionList', JSON.stringify(sessionList));
 
-            toast({ title: "Chat Saved", description: `Session "${previewName}" saved.` });
+            toast({ title: "Chat Saved", description: `Session "${sessionName}" saved.` });
 
         } catch (error) {
             console.error("Error saving chat session:", error);
-            toast({ variant: "destructive", title: "Save Error", description: "Could not save the previous chat session." });
+            toast({ variant: "destructive", title: "Save Error", description: "Could not save the chat session." });
         }
     } else {
          // Don't save an empty chat
@@ -250,7 +295,18 @@ export default function ChatPage() {
     setNonImageFileWarningShown(false); // Reset warning flag
 
     // 3. Optional: Reset any other relevant state (e.g., input field is handled by Footer)
+    // Optional: Set a default 'new chat' placeholder message?
+    /*
+    setMessages([{
+        id: `ai-${Date.now()}`,
+        sender: 'ai',
+        name: 'System',
+        text: 'Started a new chat.',
+        timestamp: Date.now()
+    }]);
+    */
   };
+
 
   // Function to handle restoring a chat session
   const handleRestoreChatSession = (sessionId: string, showToast: boolean = true) => {
@@ -260,12 +316,25 @@ export default function ChatPage() {
           const sessionDataJSON = localStorage.getItem(sessionId);
           if (sessionDataJSON) {
               const sessionData: SavedChatSession = JSON.parse(sessionDataJSON);
-              // Load messages. If previews were removed during save, they won't be present.
+              // Load messages. Restore previews and content if saved.
               setMessages(sessionData.messages);
                setNonImageFileWarningShown(false); // Reset warning flag on load
               if (showToast) {
                  toast({ title: "Chat Restored", description: `Loaded session "${sessionData.name}".` });
               }
+                // Ensure the restored session is moved to the top of the list visually in history
+                 const sessionListJSON = localStorage.getItem('chatSessionList');
+                 if (sessionListJSON) {
+                     let sessionList: ChatSessionInfo[] = JSON.parse(sessionListJSON);
+                     const restoredIndex = sessionList.findIndex(s => s.id === sessionId);
+                     if (restoredIndex > -1) {
+                         const restoredItem = sessionList.splice(restoredIndex, 1)[0];
+                         restoredItem.timestamp = Date.now(); // Update timestamp to make it most recent
+                         sessionList.unshift(restoredItem); // Add to the beginning
+                         localStorage.setItem('chatSessionList', JSON.stringify(sessionList));
+                     }
+                 }
+
           } else {
                if (showToast) {
                   toast({ variant: "destructive", title: "Restore Error", description: "Could not find saved session data." });
@@ -298,37 +367,93 @@ export default function ChatPage() {
       });
   };
 
+  // Function to read file as text
+  const fileToText = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+            if (typeof reader.result === 'string') {
+                resolve(reader.result);
+            } else {
+                reject(new Error('Failed to read file as text'));
+            }
+        };
+        reader.onerror = (error) => {
+            reject(error);
+        };
+        reader.readAsText(file);
+    });
+  };
 
-  // Function to handle sending messages (now accepts optional file)
-  const handleSendMessage = async (inputText: string, file?: File) => {
+
+   // handleSendMessage now accepts existing fileInfo for resend scenarios
+  const handleSendMessage = async (inputText: string, fileOrInfo?: File | Message['fileInfo']) => {
     const trimmedInput = inputText.trim();
-    if (!trimmedInput && !file) return; // Need either text or a file
+    const hasFile = !!fileOrInfo;
+
+    if (!trimmedInput && !hasFile) return; // Need either text or a file
 
     let fileDataUri: string | undefined = undefined;
     let fileInfoForMessage: Message['fileInfo'] = undefined;
     let textToSend = trimmedInput; // Start with the user's typed text
 
-    // Handle file processing
-    if (file) {
+    // Handle file processing (if a new File is provided)
+     if (fileOrInfo instanceof File) {
+        const file = fileOrInfo;
         const isImage = file.type.startsWith('image/');
+        const isText = file.type.startsWith('text/') || ['application/json', 'application/javascript', 'application/xml'].includes(file.type);
+         const isPdf = file.type === 'application/pdf'; // Basic PDF check
+
         try {
+            let fileContent: string | undefined = undefined;
             if (isImage) {
-                fileDataUri = await fileToDataUri(file); // Generate data URI only for images
+                fileDataUri = await fileToDataUri(file);
+            } else if (isText) {
+                 fileContent = await fileToText(file);
+            } else if (isPdf) {
+                 // Handle PDF - For now, just indicate it's a PDF. Advanced parsing would go here.
+                 fileContent = `[Content of PDF file: ${file.name}]`;
+            } else {
+                 // Other binary types
+                 fileContent = `[Binary file attached: ${file.name}, Type: ${file.type}]`;
             }
+
             fileInfoForMessage = {
                 name: file.name,
                 type: file.type,
-                previewUrl: isImage ? fileDataUri : undefined // Store preview URI only for images
+                previewUrl: isImage ? fileDataUri : undefined,
+                content: fileContent
             };
 
             // Prepend file information to the text prompt for the AI
-            textToSend = `[File Attached: ${file.name} (${file.type}, ${Math.round(file.size / 1024)} KB)]\n\n${trimmedInput}`;
+             if (fileContent) {
+                textToSend = `[User has attached a file: ${file.name} (${file.type}, ${Math.round(file.size / 1024)} KB)]\n--- File Content Start ---\n${fileContent}\n--- File Content End ---\n\nUser's message: ${trimmedInput}`;
+             } else if (isImage) {
+                 // If it's an image, the visual data is sent separately (if supported)
+                 textToSend = `[User has attached an image: ${file.name} (${file.type}, ${Math.round(file.size / 1024)} KB)]\n\nUser's message: ${trimmedInput}`;
+             } else {
+                 // Fallback for unhandled types
+                  textToSend = `[User has attached a file: ${file.name} (${file.type}, ${Math.round(file.size / 1024)} KB)]\n\nUser's message: ${trimmedInput}`;
+             }
+
 
         } catch (error) {
             console.error("Error processing file:", error);
             toast({ variant: "destructive", title: "File Error", description: `Could not process the attached file: ${file.name}` });
             return; // Stop sending if file processing fails
         }
+    } else if (fileOrInfo) { // If existing fileInfo is provided (resend scenario)
+         fileInfoForMessage = fileOrInfo;
+         fileDataUri = fileInfoForMessage.previewUrl; // Use existing preview URL for image data
+
+         // Reconstruct the textToSend based on existing fileInfo
+         if (fileInfoForMessage.content) {
+             textToSend = `[User has attached a file: ${fileInfoForMessage.name} (${fileInfoForMessage.type})]\n--- File Content Start ---\n${fileInfoForMessage.content}\n--- File Content End ---\n\nUser's message: ${trimmedInput}`;
+         } else if (fileInfoForMessage.type.startsWith('image/')) {
+             textToSend = `[User has attached an image: ${fileInfoForMessage.name} (${fileInfoForMessage.type})]\n\nUser's message: ${trimmedInput}`;
+         } else {
+             textToSend = `[User has attached a file: ${fileInfoForMessage.name} (${fileInfoForMessage.type})]\n\nUser's message: ${trimmedInput}`;
+         }
     }
 
 
@@ -391,13 +516,10 @@ export default function ChatPage() {
          if (fileDataUri && fileInfoForMessage?.type.startsWith('image/') && modelSupportsVision) {
              chatOptions.image = fileDataUri;
              console.log("Sending image to vision model.");
-         } else if (file && !fileInfoForMessage?.type.startsWith('image/')) {
-             // Non-image file attached
-             console.warn("Attached file is not an image. It will not be sent visually to the AI, but its info is in the text prompt.");
-             if (!nonImageFileWarningShown) { // Show toast only once per session
-                toast({ title: "Info", description: "Only image files can be sent visually to the AI. The attached file's info is included in the text prompt." });
-                setNonImageFileWarningShown(true);
-             }
+         } else if (fileInfoForMessage && !fileInfoForMessage?.type.startsWith('image/')) {
+             // Non-image file attached, content is in the prompt
+             console.log("Non-image file attached. Content included in the prompt.");
+             // No specific warning needed here as content is sent
          } else if (fileDataUri && !modelSupportsVision) {
               console.warn("Image file attached, but selected model may not support vision.");
               if (!nonImageFileWarningShown) { // Show toast only once per session
@@ -437,7 +559,12 @@ export default function ChatPage() {
                  chunkText = part.choices[0].delta.content;
             } else if (part?.error) { // Handle explicit errors in stream
                  console.error("Error chunk in stream:", part.error);
-                 chunkText = `[Error: ${part.error.message || part.error}]`;
+                 // Check for cancellation specifically
+                 if (part.error?.code === 'auth_canceled' || part.error?.message?.toLowerCase().includes('cancel')) {
+                    chunkText = "[Authentication Canceled]";
+                 } else {
+                    chunkText = `[Error: ${part.error.message || part.error}]`;
+                 }
                  // Stop processing further chunks for this message on error
                  streamedText += chunkText; // Add error to text
                  setMessages((prevMessages) =>
@@ -445,7 +572,7 @@ export default function ChatPage() {
                      msg.id === aiMessageId ? { ...msg, text: streamedText, timestamp: Date.now() } : msg
                    )
                  );
-                 throw new Error(part.error.message || part.error); // Propagate error
+                 throw part.error; // Propagate error object
             } else {
                 // Log unexpected chunk format for debugging
                 console.warn("Unexpected stream chunk format:", part);
@@ -474,47 +601,58 @@ export default function ChatPage() {
              );
          }
 
-      } catch (error) {
-        // Log the full error object for better diagnostics
-        console.error("Puter AI chat error:", JSON.stringify(error, null, 2)); // Log the full error object
+      } catch (error: any) {
+         // Check if the error object has a specific structure indicating cancellation
+         const isAuthCancelled = error?.code === 'auth_canceled' || error?.message?.toLowerCase().includes('cancel');
+
+        if (!isAuthCancelled) {
+             // Log the full error object for better diagnostics only if it's not a cancellation
+             console.error("Puter AI chat error:", JSON.stringify(error, null, 2));
+         } else {
+             console.log("Puter authentication cancelled by user.");
+         }
+
         let errorMsg = "An unknown error occurred.";
-        if (error instanceof Error) {
+
+        if (isAuthCancelled) {
+            errorMsg = "Authentication Canceled";
+        } else if (error instanceof Error) {
              errorMsg = error.message;
-             // Use the puterModelName variable defined outside the try block
              if (error.message.includes("Model not found") || error.message.includes("404")) {
-                 errorMsg = `Model '${puterModelName}' not found or incompatible with Puter.js. Check settings.`;
+                 errorMsg = `Model '${puterModelName}' not found or incompatible. Check settings.`;
              } else if (error.message.includes("quota") || error.message.includes("limit")) {
                  errorMsg = "Usage limit likely exceeded for this model.";
              } else if (error.message.includes("auth") || error.message.includes("401")) {
                  errorMsg = "Authentication failed or required. Sign in.";
              } else if (error.message.includes("Failed to fetch")) {
-                 errorMsg = "Network error connecting to AI service. Please check your connection.";
+                 errorMsg = "Network error connecting to AI service. Check connection.";
              } else if (error.message.includes("Input validation error") && error.message.includes("image")) {
                  errorMsg = `Selected model '${puterModelName}' does not support image input.`;
              }
         } else if (typeof error === 'string') {
              errorMsg = error;
         } else if (typeof error === 'object' && error !== null && 'message' in error) {
-             // Try to extract message from generic object error
              errorMsg = (error as { message: string }).message || JSON.stringify(error);
         } else {
-             // Fallback for completely unknown error types
              errorMsg = `An unexpected error occurred: ${JSON.stringify(error)}`;
         }
 
 
-        // Update the placeholder message with the error or remove it
+        // Update the placeholder message with the error or cancellation message
         setMessages((prevMessages) =>
              prevMessages.map((msg) =>
-               msg.id === aiMessageId ? { ...msg, text: `[Error: ${errorMsg}]`, timestamp: Date.now() } : msg
+               msg.id === aiMessageId ? { ...msg, text: `[${errorMsg}]`, timestamp: Date.now() } : msg
              )
          );
 
-        toast({
-          variant: "destructive",
-          title: "AI Chat Error",
-          description: `Could not get response: ${errorMsg}`,
-        });
+         // Only show toast for actual errors, not cancellations
+        if (!isAuthCancelled) {
+            toast({
+                variant: "destructive",
+                title: "AI Chat Error",
+                description: `Could not get response: ${errorMsg}`,
+            });
+        }
 
       } finally {
         setIsLoading(false);
@@ -532,6 +670,7 @@ export default function ChatPage() {
     }
     // --- End Puter.js AI Call ---
   };
+
 
   return (
     // Pass restore function to PageLayout -> Footer
@@ -581,11 +720,13 @@ export default function ChatPage() {
                              <img src={message.fileInfo.previewUrl} alt={message.fileInfo.name} className="max-h-40 max-w-full object-contain" />
                          </div>
                      )}
-                     {/* Render generic file icon if non-image file was attached */}
+                     {/* Render generic file icon and potentially content preview link for non-image files */}
                      {message.fileInfo && !message.fileInfo.type.startsWith('image/') && (
                           <div className="mb-2 flex items-center space-x-1 text-xs opacity-80">
                              <FileIcon className="h-3 w-3" />
                              <span>{message.fileInfo.name}</span>
+                             {/* Optionally add a button/link to view content if stored */}
+                             {/* {message.fileInfo.content && <Button size="xs">View</Button>} */}
                           </div>
                      )}
 

@@ -32,12 +32,11 @@ export default function RootLayout({
           {/* Add Puter.js script here */}
           <Script src="https://js.puter.com/v2/" strategy="beforeInteractive" />
       </head>
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`} suppressHydrationWarning>
          <AppStateProvider> {/* Wrap children with the provider */}
            {children}
            <Toaster />
          </AppStateProvider>
-        {/* Removed duplicate Puter.js script from here */}
       </body>
     </html>
   );
