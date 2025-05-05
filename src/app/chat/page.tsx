@@ -98,8 +98,12 @@ export default function ChatPage() {
 
    // Scroll to bottom whenever messages change
    useEffect(() => {
-       scrollToBottom();
-   }, [messages, isLoading]); // Also trigger on isLoading change for placeholder appearance
+       // Scroll to top (since it's reversed) when new messages arrive or loading starts/stops
+       if (scrollAreaRef.current) {
+            // Use scrollTop = 0 for flex-col-reverse to go to the "top" (which is visually the bottom/newest)
+            scrollAreaRef.current.scrollTop = 0;
+       }
+   }, [messages, isLoading]); // Trigger on message/loading changes
 
 
   // Placeholder functions for message actions
@@ -297,38 +301,18 @@ export default function ChatPage() {
 
         puterModelName = selectedModel; // Assign here
 
-         // Standardize model names for Puter.js
-         // Use the format required by Puter API based on context state
-         if (!puterModelName.includes(':') && !puterModelName.includes('/')) {
-             // If it's a plain model name (like 'gpt-4o-mini'), determine the provider
-             // This logic should align with AppHeader's grouping logic
-             if (puterModelName.startsWith('gpt') || puterModelName.startsWith('o')) {
-                 puterModelName = `openai/${puterModelName}`;
-             } else if (puterModelName.startsWith('claude')) {
-                 puterModelName = `anthropic/${puterModelName}`;
-             } else if (puterModelName.startsWith('deepseek')) {
-                 puterModelName = `deepseek/${puterModelName}`;
-             } else if (puterModelName.startsWith('grok')) {
-                 puterModelName = `x-ai/${puterModelName}`; // Correct prefix for Grok via Puter
-             } else if (puterModelName.startsWith('mistral') || puterModelName.startsWith('pixtral') || puterModelName.startsWith('codestral')) {
-                 puterModelName = `mistralai/${puterModelName}`;
-             }
-              // Add more providers here if needed (Gemini, Meta Llama usually have prefixes already)
-             // If it's an OpenRouter model selected from defaults without prefix, it needs fixing.
-             // But the context should provide the 'openrouter:' prefix.
-             else {
-                 console.warn(`Model name ${selectedModel} needs provider prefix. Assuming OpenRouter.`);
-                 puterModelName = `openrouter:${puterModelName}`; // Fallback guess
-             }
-         }
-         // If it already has 'openrouter:' or 'provider/', use it as is.
+         // Standardize model names for Puter.js if needed (already handled in context?)
+         // If selectedModel has 'openrouter:', it should be used as is.
+         // If it's a default model without provider, Puter.js *might* infer it, but best practice is to include it.
+         // Let's assume the selectedModel from context is already formatted correctly for Puter.js
+         // (e.g., 'openai/gpt-4o-mini' or 'openrouter:meta-llama/llama-3.1-8b-instruct')
 
         console.log(`Using model for Puter API call: ${puterModelName}`);
 
         const responseStream = await window.puter.ai.chat(
           inputText.trim(),
           {
-            model: puterModelName, // Use the potentially prefixed/provider-qualified name
+            model: puterModelName, // Use the model name directly from context
             stream: true,
           }
         );
@@ -337,12 +321,12 @@ export default function ChatPage() {
         for await (const part of responseStream) {
            let chunkText = '';
             // Refined logic to extract text from various stream formats
-            if (typeof part === 'string') { // Simple string chunk
+            if (typeof part === 'string') { // Simple string chunk (might happen for some models/errors)
                 chunkText = part;
-            } else if (part?.text) { // Standard text part (OpenAI, Gemini, some OR)
+            } else if (part?.text) { // Standard text part (OpenAI, Gemini, some OR, Mistral)
                 chunkText = part.text;
             // --- Start: Updated Logic for Nested Structures ---
-            } else if (part?.message?.content) { // Common nested structure (Claude, Deepseek, Grok, some OR)
+            } else if (part?.message?.content) { // Common nested structure (Claude, Deepseek, Grok, Llama, some OR)
                 // Handle cases where content is an array (like Claude)
                  if (Array.isArray(part.message.content)) {
                      // Check if the first element has text
@@ -350,17 +334,13 @@ export default function ChatPage() {
                          chunkText = part.message.content[0].text;
                      }
                  }
-                 // Handle cases where content is a simple string (like Grok, Deepseek, maybe some OR)
+                 // Handle cases where content is a simple string (like Grok, Deepseek, Llama, maybe some OR)
                  else if (typeof part.message.content === 'string') {
                     chunkText = part.message.content;
                  }
              // --- End: Updated Logic for Nested Structures ---
             } else if (part?.choices?.[0]?.delta?.content) { // Common stream structure (OpenAI, some OR)
                  chunkText = part.choices[0].delta.content;
-            } else if (part?.message?.output) { // Potential structure?
-                 if (typeof part.message.output === 'string') {
-                    chunkText = part.message.output;
-                 }
             } else if (part?.error) { // Handle explicit errors in stream
                  console.error("Error chunk in stream:", part.error);
                  chunkText = `[Error: ${part.error.message || part.error}]`;
@@ -372,7 +352,11 @@ export default function ChatPage() {
                    )
                  );
                  throw new Error(part.error.message || part.error); // Propagate error
+            } else {
+                // Log unexpected chunk format for debugging
+                console.warn("Unexpected stream chunk format:", part);
             }
+
 
           if (chunkText) {
             streamedText += chunkText;
@@ -397,7 +381,8 @@ export default function ChatPage() {
          }
 
       } catch (error) {
-        console.error("Puter AI chat error:", error);
+        // Log the full error object for better diagnostics
+        console.error("Puter AI chat error:", JSON.stringify(error, null, 2)); // Log the full error object
         let errorMsg = "An unknown error occurred.";
         if (error instanceof Error) {
              errorMsg = error.message;
@@ -408,10 +393,19 @@ export default function ChatPage() {
                  errorMsg = "Usage limit likely exceeded for this model.";
              } else if (error.message.includes("auth") || error.message.includes("401")) {
                  errorMsg = "Authentication failed or required. Sign in.";
+             } else if (error.message.includes("Failed to fetch")) {
+                 errorMsg = "Network error connecting to AI service. Please check your connection.";
              }
         } else if (typeof error === 'string') {
              errorMsg = error;
+        } else if (typeof error === 'object' && error !== null && 'message' in error) {
+             // Try to extract message from generic object error
+             errorMsg = (error as { message: string }).message || JSON.stringify(error);
+        } else {
+             // Fallback for completely unknown error types
+             errorMsg = `An unexpected error occurred: ${JSON.stringify(error)}`;
         }
+
 
         // Update the placeholder message with the error or remove it
         setMessages((prevMessages) =>
@@ -483,7 +477,7 @@ export default function ChatPage() {
                     </div>
                     {/* Message Text */}
                     {/* Handle loading state for AI messages */}
-                    {(message.sender === 'ai' && message.text === '...' && isLoading) ? (
+                    {(message.sender === 'ai' && message.text === '...' && isLoading && messages.indexOf(message) === 0) ? ( // Show skeleton only for the *very first* AI placeholder
                          // Use Skeleton for loading indicator within the bubble
                          <div className="space-y-2">
                             <Skeleton className="h-4 w-[80%]" />
@@ -525,3 +519,4 @@ export default function ChatPage() {
     </PageLayout>
   );
 }
+
