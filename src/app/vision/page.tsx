@@ -1,11 +1,12 @@
 
+
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { PageLayout } from '@/components/page-layout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Upload, Camera, Monitor, Mic as MicIcon, AlertCircle, KeyRound, File as FileIcon, Copy, Maximize2 } from 'lucide-react'; // Import icons
+import { Upload, Camera, Monitor, Mic as MicIcon, AlertCircle, KeyRound, File as FileIcon, Copy, Maximize2, Loader2 } from 'lucide-react'; // Import icons
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label'; // Import Label
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -35,6 +36,8 @@ interface Message {
 
 // Define the model name constant - Use the correct Gemini Live model
 const GEMINI_MODEL_NAME = "models/gemini-2.0-flash-live-001";
+// Define the API version to use
+const GEMINI_API_VERSION = "v1alpha"; // Changed from v1beta
 
 export default function VisionPage() {
     const [apiKey, setApiKey] = useState<string | null>(null);
@@ -133,8 +136,8 @@ export default function VisionPage() {
         setIsLoading(true);
         scrollToBottom(); // Scroll after adding user message
 
-        // Use v1beta endpoint as v1 doesn't support 'generateContent' directly via REST for all models/features
-        const geminiApiEndpoint = `https://generativelanguage.googleapis.com/v1beta/${GEMINI_MODEL_NAME}:generateContent?key=${apiKey}`;
+        // Use the specified API version in the endpoint URL
+        const geminiApiEndpoint = `https://generativelanguage.googleapis.com/${GEMINI_API_VERSION}/${GEMINI_MODEL_NAME}:generateContent?key=${apiKey}`;
 
         const parts = [];
         if (trimmedInput) {
@@ -159,7 +162,7 @@ export default function VisionPage() {
         };
 
         try {
-            console.log("Sending to Gemini:", JSON.stringify(requestBody));
+            console.log(`Sending to Gemini (${GEMINI_API_VERSION}):`, JSON.stringify(requestBody));
             const response = await fetch(geminiApiEndpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -167,11 +170,11 @@ export default function VisionPage() {
             });
 
             let errorData: any = {};
-            let detailedMessage = `Gemini API Error: ${response.status} ${response.statusText}`;
+            let detailedMessage = `Gemini API Error (${response.status} ${response.statusText})`; // Removed duplicate status
             let responseText = '';
+            let rawErrorText = ''; // Initialize rawErrorText
 
              if (!response.ok) {
-                 let rawErrorText = '';
                  try {
                      rawErrorText = await response.text(); // Get raw error text first
                      console.log("Raw Gemini Error Text:", rawErrorText); // Log raw response
@@ -194,16 +197,16 @@ export default function VisionPage() {
                         detailedMessage = "Invalid Gemini API Key. Please check your key.";
                         setIsApiKeyDialogOpen(true);
                     } else if (response.status === 400 && (rawErrorText.includes("not found for API version") || rawErrorText.includes("not supported for generateContent"))) {
-                        detailedMessage = `Model '${GEMINI_MODEL_NAME}' not found or method not supported for v1beta. Check model name/API version compatibility.`;
+                        detailedMessage = `Model '${GEMINI_MODEL_NAME}' not found or method not supported for ${GEMINI_API_VERSION}. Check model name/API version compatibility.`;
                     } else if (response.status === 400) {
                         detailedMessage += " Bad request. Check input format or safety settings.";
                     } else if (response.status === 401 || response.status === 403) {
                         detailedMessage = "Authentication failed. Check your API key permissions.";
                         setIsApiKeyDialogOpen(true);
                     } else if (response.status === 429) {
-                        detailedMessage += " Rate limit exceeded. Please try again later.";
+                        detailedMessage = "Rate limit exceeded. Please try again later."; // Changed message
                     } else if (response.status >= 500) {
-                        detailedMessage += " Server error on Gemini's side. Please try again later.";
+                        detailedMessage = "Server error on Gemini's side. Please try again later."; // Changed message
                     }
                  }
                  throw new Error(detailedMessage);
@@ -250,7 +253,7 @@ export default function VisionPage() {
             setMessages((prevMessages) => [...prevMessages, aiMessage]);
 
         } catch (error: any) {
-            console.error("Error sending message to Gemini:", error);
+            console.error(`Error sending message to Gemini (${GEMINI_API_VERSION}):`, error);
             const errorMessage: Message = {
                 id: `error-${Date.now()}`,
                 sender: 'ai', // Show error as AI response
@@ -715,7 +718,7 @@ export default function VisionPage() {
                         {/* Placeholder when no messages */}
                         {messages.length === 0 && !isLoading && (
                              <p className="text-sm text-muted-foreground text-center p-4">
-                                {apiKey ? 'Activate a source (Camera, Screen, or Audio) or start chatting below.' : 'Enter your Gemini API key to start.'}
+                                {apiKey ? 'Activate a source or start chatting below.' : 'Enter your Gemini API key to start.'}
                              </p>
                         )}
                         {/* Div to mark the end of messages for scrolling */}
@@ -740,11 +743,10 @@ export default function VisionPage() {
                          <Upload className="h-4 w-4" />
                      </Button>
                     <Button onClick={() => handleSendMessage(inputValue)} disabled={isLoading || !apiKey || (!inputValue.trim() && messages.length === 0)}>
-                        {isLoading ? <Skeleton className="h-5 w-5" /> : "Send"}
+                        {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : "Send"} {/* Added loading spinner */}
                     </Button>
                 </div>
             </div>
         </PageLayout>
     );
 }
-
