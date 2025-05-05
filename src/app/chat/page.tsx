@@ -129,6 +129,20 @@ export default function ChatPage() {
     }
   };
 
+  // Function to handle starting a new chat
+  const handleNewChat = () => {
+    // 1. Save current messages (optional, implement saving logic if needed)
+    // const sessionId = `chat-${Date.now()}`;
+    // localStorage.setItem(sessionId, JSON.stringify(messages));
+    // Add sessionId to a list of sessions in localStorage
+
+    // 2. Clear current messages state
+    setMessages([]);
+
+    // 3. Reset any other relevant state (e.g., context, input field if not already cleared)
+    // Context reset might be needed if chat history affects AI responses
+  };
+
 
   // Function to handle sending messages
   const handleSendMessage = async (inputText: string) => {
@@ -141,10 +155,10 @@ export default function ChatPage() {
       text: inputText.trim(),
       timestamp: Date.now(),
     };
-    // Add to the end for newest-last display
-    setMessages((prevMessages) => [...prevMessages, userMessage]);
+    // Add user message to the beginning for newest-first display
+    setMessages((prevMessages) => [userMessage, ...prevMessages]);
     setIsLoading(true);
-    scrollToBottom(); // Scroll after adding user message
+    // No need to scrollToBottom immediately if newest is at top
 
     let aiMessageId = ''; // Keep track of the AI message ID for this request
 
@@ -152,7 +166,7 @@ export default function ChatPage() {
     if (typeof window !== 'undefined' && window.puter?.ai?.chat) {
       try {
         aiMessageId = `ai-${Date.now()}`; // Assign ID here
-        // Add a placeholder AI message for streaming
+        // Add a placeholder AI message for streaming at the beginning
         const placeholderAiMessage: Message = {
             id: aiMessageId,
             sender: 'ai',
@@ -160,9 +174,9 @@ export default function ChatPage() {
             text: '...', // Placeholder text
             timestamp: Date.now()
         };
-         // Add placeholder to the end
-        setMessages((prevMessages) => [...prevMessages, placeholderAiMessage]);
-        scrollToBottom(); // Scroll after adding placeholder
+        // Add placeholder to the beginning
+        setMessages((prevMessages) => [placeholderAiMessage, ...prevMessages]);
+        // No scroll needed if newest is at top
 
 
         puterModelName = selectedModel; // Assign here
@@ -172,6 +186,7 @@ export default function ChatPage() {
             // Keep the openrouter: prefix as is for the API call
          } else if (puterModelName.startsWith('gpt') || puterModelName.startsWith('o')) {
              // Puter often recognizes these directly, but let's be explicit for robustness
+             // Puter API needs openai/ prefix for OpenAI models if not using OpenRouter
              puterModelName = `openai/${puterModelName}`;
          } else if (puterModelName.startsWith('claude')) {
              puterModelName = `anthropic/${puterModelName}`;
@@ -220,6 +235,10 @@ export default function ChatPage() {
                  }
             } else if (part?.choices?.[0]?.delta?.content) { // Common stream structure (OpenAI, some OR)
                  chunkText = part.choices[0].delta.content;
+            } else if (part?.message?.output) { // Potential structure for some models like Gemini via OpenRouter?
+                 if (typeof part.message.output === 'string') {
+                    chunkText = part.message.output;
+                 }
             }
 
           if (chunkText) {
@@ -231,7 +250,7 @@ export default function ChatPage() {
                 msg.id === aiMessageId ? { ...msg, text: streamedText, timestamp: Date.now() } : msg
               )
             );
-             scrollToBottom(); // Scroll as new content streams in
+             // No scroll needed if newest is at top
           }
         }
 
@@ -282,7 +301,7 @@ export default function ChatPage() {
         title: "Error",
         description: "AI functionality is not available. Ensure Puter.js is loaded and you are signed in.",
       });
-       // Remove the user message if Puter isn't loaded
+       // Remove the user message if Puter isn't loaded (it's at the beginning)
        setMessages((prevMessages) => prevMessages.filter(msg => msg.id !== userMessage.id));
       setIsLoading(false);
     }
@@ -290,20 +309,27 @@ export default function ChatPage() {
   };
 
   return (
-    // Pass currentPageName="Chat" and onSendMessage handler to PageLayout
-    <PageLayout currentPageName="Chat" onSendMessage={handleSendMessage}>
+    // Pass currentPageName="Chat", onSendMessage handler, and onNewChat handler to PageLayout
+    <PageLayout currentPageName="Chat" onSendMessage={handleSendMessage} onNewChat={handleNewChat}>
       {/* Main container for the chat display */}
       <div className="flex flex-col h-full flex-grow overflow-hidden">
-        {/* Chat Display Area - Normal order */}
+        {/* Chat Display Area - Reverse order */}
         <ScrollArea className="flex-grow h-full border rounded-md p-4 bg-secondary/30" viewportRef={scrollAreaRef}>
-           {/* Use flex-col for newest at bottom */}
-           <div className="flex flex-col space-y-4">
-             {/* Placeholder when no messages */}
-             {messages.length === 0 && !isLoading && (
-               <p className="text-sm text-muted-foreground text-center p-4">Start chatting by typing a message below.</p>
-             )}
+           {/* Use flex-col-reverse for newest at top */}
+           <div className="flex flex-col-reverse space-y-4 space-y-reverse">
+                {/* Div to mark the end of messages for scrolling */}
+                <div ref={messagesEndRef} />
 
-             {/* Map through messages (normal order) */}
+               {/* Loading indicator for initial AI response (after user message) - Now appears at top */}
+               {/* {isLoading && messages.length > 0 && messages[0].sender === 'user' && (
+                 <div className="flex justify-start p-2">
+                    <div className="bg-muted p-3 rounded-lg max-w-[75%] shadow-md">
+                        <Skeleton className="h-4 w-16" />
+                    </div>
+                 </div>
+               )} */}
+
+             {/* Map through messages (reverse order due to flex-col-reverse) */}
              {messages.map((message, index) => (
                <div key={message.id} className="p-2">
                  <div
@@ -355,16 +381,11 @@ export default function ChatPage() {
                  </div>
                </div>
              ))}
-               {/* Loading indicator for initial AI response (after user message) - might not be needed if placeholder works well */}
-               {/* {isLoading && messages.length > 0 && messages[messages.length - 1].sender === 'user' && (
-                 <div className="flex justify-start p-2">
-                    <div className="bg-muted p-3 rounded-lg max-w-[75%] shadow-md">
-                        <Skeleton className="h-4 w-16" />
-                    </div>
-                 </div>
-               )} */}
-              {/* Div to mark the end of messages for scrolling */}
-              <div ref={messagesEndRef} />
+
+             {/* Placeholder when no messages */}
+             {messages.length === 0 && !isLoading && (
+               <p className="text-sm text-muted-foreground text-center p-4">Start chatting by typing a message below.</p>
+             )}
 
            </div>
          </ScrollArea>

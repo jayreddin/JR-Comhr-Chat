@@ -117,9 +117,10 @@ const openRouterProvidersStructure = [{ provider: "OpenRouter", models: [] as st
 
 interface FooterProps {
   onSendMessage?: (message: string) => void; // Make prop optional
+  onNewChat?: () => void; // Add optional onNewChat prop
 }
 
-export function Footer({ onSendMessage }: FooterProps) {
+export function Footer({ onSendMessage, onNewChat }: FooterProps) {
     const currentYear = new Date().getFullYear();
     const [inputValue, setInputValue] = useState('');
     const [isRecording, setIsRecording] = useState(false);
@@ -332,13 +333,14 @@ export function Footer({ onSendMessage }: FooterProps) {
 
 
     // --- Control Bar Actions ---
-    const handleNewChat = () => {
-        console.log("Starting new chat session...");
-        // 1. Save current messages to local storage (implement saving logic)
-        // 2. Clear current messages state (if using state managed by parent, call a prop)
-        // setMessages([]); // Example if state is local - this should be handled by parent via prop
-        // 3. Generate new session ID, update history state
-        toast({ title: "New Chat", description: "Functionality not fully implemented." });
+     const handleNewChat = () => {
+        if (onNewChat) {
+            console.log("Starting new chat session...");
+            onNewChat(); // Call the parent's new chat handler
+            toast({ title: "New Chat Started", description: "Previous session saved." });
+        } else {
+             toast({ variant: "destructive", title: "Action Unavailable", description: "Cannot start a new chat here." });
+        }
     };
 
     const handleRestoreChat = (sessionId: string) => {

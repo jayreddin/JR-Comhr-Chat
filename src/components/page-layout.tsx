@@ -7,9 +7,10 @@ interface PageLayoutProps {
   children: React.ReactNode;
   currentPageName?: string;
   onSendMessage?: (message: string) => void; // Add optional onSendMessage prop
+  onNewChat?: () => void; // Add optional onNewChat prop
 }
 
-export function PageLayout({ children, currentPageName, onSendMessage }: PageLayoutProps) {
+export function PageLayout({ children, currentPageName, onSendMessage, onNewChat }: PageLayoutProps) {
   return (
     // Ensure the root layout div takes full height and uses flex column
     <div className="flex flex-col min-h-screen">
@@ -21,7 +22,7 @@ export function PageLayout({ children, currentPageName, onSendMessage }: PageLay
             {children}
         </div>
       </main>
-       <Footer onSendMessage={onSendMessage} /> {/* Pass onSendMessage to Footer */}
+       <Footer onSendMessage={onSendMessage} onNewChat={onNewChat} /> {/* Pass onSendMessage and onNewChat to Footer */}
     </div>
   );
 }
