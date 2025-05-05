@@ -42,6 +42,9 @@ body {
     --sidebar-accent-foreground: 210 10% 10%;
     --sidebar-border: 210 13% 91%;
     --sidebar-ring: 180 60% 40%;
+
+    /* Chat Specific Variables */
+    --chat-text-size: 14px; /* Default chat text size */
   }
   .dark {
     --background: 210 10% 10%; /* Very Dark Gray */
@@ -77,14 +80,19 @@ body {
     --sidebar-accent-foreground: 210 40% 95.9%;
     --sidebar-border: 210 10% 15.9%;
     --sidebar-ring: 180 60% 40%;
-  }
-}
 
-@layer base {
+    /* Chat Specific Variables */
+    --chat-text-size: 14px; /* Default chat text size for dark mode */
+  }
+
   * {
     @apply border-border;
   }
   body {
     @apply bg-background text-foreground;
+  }
+  /* Apply chat text size globally or scope it more specifically */
+  .text-sm {
+    font-size: var(--chat-text-size); /* Override default text-sm using variable */
   }
 }
