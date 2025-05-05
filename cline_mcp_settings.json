@@ -20,6 +20,15 @@
   "args": ["@agentdeskai/browser-tools-mcp@latest"],
   "disabled": false,
   "autoApprove": []
-}
+},
+    "browserbase": {
+      "command": "node",
+      "args": ["/home/user/Documents/Cline/MCP/weather-server/build/index.js"],
+      "env": {
+        "OPENWEATHER_API_KEY": "user-provided-api-key"
+      },
+      "disabled": false,
+      "autoApprove": []
+    }
   }
 }

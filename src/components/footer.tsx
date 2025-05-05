@@ -418,7 +418,7 @@ export function Footer({ onSendMessage, onNewChat, onRestoreChat }: FooterProps)
                 reader.onloadend = () => {
                     setFilePreview(reader.result as string);
                 };
-                reader.readAsDataURL(file);
+                reader.readDataURL(file);
             }
             // Read content for text-based files (or PDF - needs more complex handling later)
             else if (isText) {
