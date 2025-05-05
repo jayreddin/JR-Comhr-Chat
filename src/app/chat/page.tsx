@@ -11,6 +11,7 @@ import { toast } from '@/hooks/use-toast'; // For error notifications
 import { Footer } from '@/components/footer'; // Import Footer for sending messages
 import { Copy, Trash2, RefreshCw, Volume2 } from 'lucide-react'; // Icons for message actions
 import { cn } from '@/lib/utils'; // Utility for class names
+import { Skeleton } from '@/components/ui/skeleton'; // Import Skeleton for loading
 
 // Define message structure with timestamp and potentially name
 interface Message {
@@ -34,6 +35,7 @@ export default function ChatPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [username, setUsername] = useState<string>('User'); // Placeholder username
   const scrollAreaRef = useRef<HTMLDivElement>(null); // Ref for the scroll area viewport
+  const messagesEndRef = useRef<HTMLDivElement>(null); // Ref for the bottom of the messages list
   let puterModelName: string = ''; // Declare variable outside try block
 
   // Get username from Puter auth when component mounts
@@ -52,31 +54,55 @@ export default function ChatPage() {
   }, []);
 
 
-   // Function to scroll to the bottom (or top if reversed) of the chat
-   // Since we are reversing, we might not need explicit scrolling on new message,
-   // as new messages appear at the top. However, keep it for potential manual scroll needs.
+   // Function to scroll to the bottom of the chat
    const scrollToBottom = () => {
-    // Adjust if needed based on layout changes
-    const viewport = scrollAreaRef.current?.firstElementChild;
-    if (viewport) {
-        // If reversed, scroll to top might be more relevant, but new items appear there anyway.
-        // Keep scrolling to bottom for consistency or remove if layout handles it.
-        viewport.scrollTop = viewport.scrollHeight;
-    }
-  };
+     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+     // Alternative using viewport ref:
+     // const viewport = scrollAreaRef.current?.firstElementChild;
+     // if (viewport) {
+     //     viewport.scrollTop = viewport.scrollHeight;
+     // }
+   };
+
+   // Scroll to bottom whenever messages change
+   useEffect(() => {
+       scrollToBottom();
+   }, [messages, isLoading]); // Also trigger on isLoading change for placeholder appearance
+
 
   // Placeholder functions for message actions
   const handleResend = (messageId: string) => {
-    const messageToResend = messages.find(msg => msg.id === messageId);
-    if (messageToResend && messageToResend.sender === 'user') {
+    const messageIndex = messages.findIndex(msg => msg.id === messageId);
+    if (messageIndex === -1) return;
+
+    const messageToResend = messages[messageIndex];
+
+    if (messageToResend.sender === 'user') {
         console.log(`Resending message: ${messageId}`);
-        // Remove the original AI response if it exists immediately after
-        // This needs careful implementation based on message order and IDs
+        // Find the AI response immediately following this user message, if any
+        const nextMessage = messages[messageIndex + 1];
+        let messagesWithoutOldResponse = [...messages];
+        if (nextMessage && nextMessage.sender === 'ai') {
+             // Simple removal - assumes AI response is directly after.
+             // Might need more robust logic if order isn't guaranteed or history exists.
+             messagesWithoutOldResponse = messages.filter((_, idx) => idx !== messageIndex + 1);
+        }
+        setMessages(messagesWithoutOldResponse); // Update state before sending
         handleSendMessage(messageToResend.text); // Re-trigger send logic
-    } else if (messageToResend && messageToResend.sender === 'ai') {
-        // Logic to regenerate AI response - might need the preceding user message
-        console.log(`Requesting regeneration for AI message: ${messageId}`);
-        toast({ title: "Regenerate", description: "AI regeneration not yet implemented." });
+    } else if (messageToResend.sender === 'ai') {
+        // Logic to regenerate AI response
+        // Find the preceding user message
+        const precedingUserMessage = messages[messageIndex - 1];
+        if (precedingUserMessage && precedingUserMessage.sender === 'user') {
+            console.log(`Requesting regeneration for AI message: ${messageId}`);
+             // Remove the AI message we are regenerating
+            const messagesWithoutCurrentAi = messages.filter((_, idx) => idx !== messageIndex);
+            setMessages(messagesWithoutCurrentAi);
+            // Resend the user message that prompted this AI response
+            handleSendMessage(precedingUserMessage.text);
+        } else {
+             toast({ variant: "destructive", title: "Regenerate Failed", description: "Cannot regenerate response without the preceding user message." });
+        }
     }
   };
 
@@ -108,7 +134,6 @@ export default function ChatPage() {
   const handleSendMessage = async (inputText: string) => {
     if (!inputText.trim()) return;
 
-    // Add user message immediately
     const userMessage: Message = {
       id: `user-${Date.now()}`,
       sender: 'user',
@@ -116,31 +141,37 @@ export default function ChatPage() {
       text: inputText.trim(),
       timestamp: Date.now(),
     };
-    // Add to the beginning for newest-first display
-    setMessages((prevMessages) => [userMessage, ...prevMessages]);
+    // Add to the end for newest-last display
+    setMessages((prevMessages) => [...prevMessages, userMessage]);
     setIsLoading(true);
+    scrollToBottom(); // Scroll after adding user message
+
+    let aiMessageId = ''; // Keep track of the AI message ID for this request
 
     // --- Puter.js AI Call ---
     if (typeof window !== 'undefined' && window.puter?.ai?.chat) {
       try {
-        const aiMessageId = `ai-${Date.now()}`;
+        aiMessageId = `ai-${Date.now()}`; // Assign ID here
         // Add a placeholder AI message for streaming
         const placeholderAiMessage: Message = {
             id: aiMessageId,
             sender: 'ai',
-            name: selectedModel.split('/').pop() || selectedModel, // Get model name
-            text: '...',
+            name: selectedModel.split('/').pop()?.replace('openrouter:', '') || selectedModel, // Get model name, remove prefix for display
+            text: '...', // Placeholder text
             timestamp: Date.now()
         };
-        setMessages((prevMessages) => [placeholderAiMessage, ...prevMessages]);
+         // Add placeholder to the end
+        setMessages((prevMessages) => [...prevMessages, placeholderAiMessage]);
+        scrollToBottom(); // Scroll after adding placeholder
 
 
         puterModelName = selectedModel; // Assign here
 
          // Standardize model names for Puter.js
          if (puterModelName.startsWith('openrouter:')) {
-            // Keep the openrouter: prefix as is
+            // Keep the openrouter: prefix as is for the API call
          } else if (puterModelName.startsWith('gpt') || puterModelName.startsWith('o')) {
+             // Puter often recognizes these directly, but let's be explicit for robustness
              puterModelName = `openai/${puterModelName}`;
          } else if (puterModelName.startsWith('claude')) {
              puterModelName = `anthropic/${puterModelName}`;
@@ -150,27 +181,20 @@ export default function ChatPage() {
              // Puter uses 'x-ai/' prefix for Grok as per docs
              puterModelName = `x-ai/${puterModelName}`;
          } else if (puterModelName.startsWith('mistral') || puterModelName.startsWith('pixtral') || puterModelName.startsWith('codestral')) {
-             // Puter doesn't seem to require a prefix for these based on docs
-             // Keep them as is unless errors occur - prepend if needed
-             // puterModelName = `mistralai/${puterModelName}`; // Example if needed
+             // Explicitly add Mistral prefix for clarity, though Puter might handle it
+             puterModelName = `mistralai/${puterModelName}`;
          } else if (puterModelName.startsWith('google/')) {
             // Keep google prefix
          } else if (puterModelName.startsWith('meta-llama/')) {
              // Keep meta-llama prefix
          } else {
-            // If none of the known prefixes match, assume it might be an OpenRouter model
-            // or another provider Puter recognizes directly or via OpenRouter fallback.
-            // Check if it was originally an OpenRouter model that lost its prefix somehow?
-            // This case shouldn't happen if AppState context provides the full name.
-            // If it's not an OR model and has no prefix, try prepending 'openrouter:' as a guess.
-            // This might be fragile. A safer approach is ensuring models always have correct context.
+            // If no recognized prefix, assume it needs 'openrouter:' (safer than sending bare)
+            // This case shouldn't happen if context provides the correct name.
             console.warn(`Model name ${selectedModel} lacks a recognized prefix. Assuming OpenRouter.`);
             puterModelName = `openrouter:${puterModelName}`;
-            // Alternatively, just send as-is:
-            // console.warn(`Model name ${selectedModel} lacks a recognized prefix. Sending as-is.`);
          }
 
-        console.log(`Using model for Puter: ${puterModelName}`);
+        console.log(`Using model for Puter API call: ${puterModelName}`);
 
         const responseStream = await window.puter.ai.chat(
           inputText.trim(),
@@ -184,17 +208,17 @@ export default function ChatPage() {
         for await (const part of responseStream) {
            let chunkText = '';
             // Refined logic to extract text from various stream formats
-            if (part?.text) { // Standard or simple text part (OpenAI, Gemini)
+            if (typeof part === 'string') { // Simple string chunk (less common but possible)
+                chunkText = part;
+            } else if (part?.text) { // Standard or simple text part (OpenAI, Gemini, some OR)
                 chunkText = part.text;
-            } else if (part?.message?.content) { // Nested structure (like Claude, Deepseek, Grok, OpenRouter)
+            } else if (part?.message?.content) { // Nested structure (like Claude, Deepseek, Grok, some OR)
                  if (Array.isArray(part.message.content) && part.message.content[0]?.text) {
                      chunkText = part.message.content[0].text; // Claude array structure
                  } else if (typeof part.message.content === 'string') {
-                    chunkText = part.message.content; // Simple string content (e.g., Grok, Deepseek, some OpenRouter)
+                    chunkText = part.message.content; // Simple string content (e.g., Grok, Deepseek, some OR)
                  }
-            } else if (typeof part === 'string') { // The part itself is the text chunk (less common now)
-                chunkText = part;
-            } else if (part?.choices?.[0]?.delta?.content) { // OpenRouter specific stream structure sometimes
+            } else if (part?.choices?.[0]?.delta?.content) { // Common stream structure (OpenAI, some OR)
                  chunkText = part.choices[0].delta.content;
             }
 
@@ -203,10 +227,11 @@ export default function ChatPage() {
             // Update the placeholder message with the streamed content
             setMessages((prevMessages) =>
               prevMessages.map((msg) =>
-                msg.id === aiMessageId ? { ...msg, text: streamedText, timestamp: Date.now() } : msg // Update timestamp on stream update
+                // Find the specific AI message by ID and update its text
+                msg.id === aiMessageId ? { ...msg, text: streamedText, timestamp: Date.now() } : msg
               )
             );
-            // scrollToBottom(); // Scrolling might be less necessary with reverse order
+             scrollToBottom(); // Scroll as new content streams in
           }
         }
 
@@ -242,10 +267,10 @@ export default function ChatPage() {
           description: `Could not get response from AI: ${errorMsg}`,
         });
 
-        // Attempt to find and remove the AI placeholder message on error
-        // Finding the exact placeholder ID can be tricky if time passes.
-        // We might need a more robust way, like filtering by text '...' and sender 'ai'.
-        setMessages((prevMessages) => prevMessages.filter(msg => !(msg.sender === 'ai' && msg.text === '...')));
+        // Remove the specific placeholder AI message added for this request on error
+        if (aiMessageId) {
+           setMessages((prevMessages) => prevMessages.filter(msg => msg.id !== aiMessageId));
+        }
 
       } finally {
         setIsLoading(false);
@@ -269,34 +294,16 @@ export default function ChatPage() {
     <PageLayout currentPageName="Chat" onSendMessage={handleSendMessage}>
       {/* Main container for the chat display */}
       <div className="flex flex-col h-full flex-grow overflow-hidden">
-        {/* Chat Display Area - Reversed order */}
+        {/* Chat Display Area - Normal order */}
         <ScrollArea className="flex-grow h-full border rounded-md p-4 bg-secondary/30" viewportRef={scrollAreaRef}>
-           {/* Use flex-col-reverse on the container inside ScrollArea to show newest first */}
-           <div className="flex flex-col-reverse space-y-4 space-y-reverse">
+           {/* Use flex-col for newest at bottom */}
+           <div className="flex flex-col space-y-4">
              {/* Placeholder when no messages */}
              {messages.length === 0 && !isLoading && (
                <p className="text-sm text-muted-foreground text-center p-4">Start chatting by typing a message below.</p>
              )}
 
-             {/* Loading indicator at the top (effectively bottom when reversed) if waiting for first AI response */}
-              {isLoading && messages.length === 1 && messages[0].sender === 'user' && (
-                 <div className="flex justify-start p-2">
-                    <div className="bg-muted p-3 rounded-lg max-w-[75%] shadow-md">
-                       <p className="text-sm animate-pulse">...</p>
-                    </div>
-                 </div>
-              )}
-              {/* Loading indicator when streaming the very first message */}
-               {isLoading && messages.length === 1 && messages[0].sender === 'ai' && messages[0].text === '...' && (
-                 <div className="flex justify-start p-2">
-                    <div className="bg-muted p-3 rounded-lg max-w-[75%] shadow-md">
-                       <p className="text-sm animate-pulse">...</p>
-                    </div>
-                 </div>
-               )}
-
-
-             {/* Map through messages (already reversed by CSS) */}
+             {/* Map through messages (normal order) */}
              {messages.map((message, index) => (
                <div key={message.id} className="p-2">
                  <div
@@ -320,7 +327,11 @@ export default function ChatPage() {
                     {/* Message Text */}
                     {/* Handle loading state for AI messages */}
                     {(message.sender === 'ai' && message.text === '...' && isLoading) ? (
-                         <p className="text-sm animate-pulse">...</p>
+                         // Use Skeleton for loading indicator within the bubble
+                         <div className="space-y-2">
+                            <Skeleton className="h-4 w-[80%]" />
+                            <Skeleton className="h-4 w-[60%]" />
+                         </div>
                     ) : (
                          <p className="text-sm">{message.text}</p>
                     )}
@@ -328,7 +339,7 @@ export default function ChatPage() {
                     </div>
                     {/* Action Buttons - Appear below the bubble */}
                     <div className="flex space-x-1 mt-1 opacity-70 hover:opacity-100 transition-opacity">
-                       <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleResend(message.id)} aria-label="Resend/Regenerate">
+                       <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleResend(message.id)} aria-label={message.sender === 'user' ? "Resend" : "Regenerate"}>
                            <RefreshCw className="h-3 w-3" />
                        </Button>
                         <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleCopy(message.text)} aria-label="Copy">
@@ -344,7 +355,16 @@ export default function ChatPage() {
                  </div>
                </div>
              ))}
-
+               {/* Loading indicator for initial AI response (after user message) - might not be needed if placeholder works well */}
+               {/* {isLoading && messages.length > 0 && messages[messages.length - 1].sender === 'user' && (
+                 <div className="flex justify-start p-2">
+                    <div className="bg-muted p-3 rounded-lg max-w-[75%] shadow-md">
+                        <Skeleton className="h-4 w-16" />
+                    </div>
+                 </div>
+               )} */}
+              {/* Div to mark the end of messages for scrolling */}
+              <div ref={messagesEndRef} />
 
            </div>
          </ScrollArea>
