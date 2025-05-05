@@ -1,12 +1,13 @@
 
 import React from 'react';
 import { AppHeader } from './app-header';
-import { Footer } from './footer'; // Import the new Footer component
+import { Footer, FileUploadData } from './footer'; // Import the new Footer component and FileUploadData
 
 interface PageLayoutProps {
   children: React.ReactNode;
   currentPageName?: string;
-  onSendMessage?: (message: string, file?: File) => void; // Update to accept optional File
+  // Update onSendMessage to accept FileUploadData
+  onSendMessage?: (message: string, fileUploadData?: FileUploadData) => void;
   onNewChat?: () => void; // Add optional onNewChat prop
   onRestoreChat?: (sessionId: string) => void; // Add optional onRestoreChat prop
 }
@@ -31,5 +32,3 @@ export function PageLayout({ children, currentPageName, onSendMessage, onNewChat
     </div>
   );
 }
-
-    

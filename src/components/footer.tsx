@@ -52,6 +52,12 @@ interface ChatSessionInfo {
     timestamp: number;
 }
 
+// Define structure for file upload data passed to onSendMessage
+export interface FileUploadData {
+    file: File | null; // The File object itself
+    sendImageData: boolean; // Flag to indicate if image data should be sent
+}
+
 
 const providerLinks = [
     { name: "Jamie Reddin", href: "https://jayreddin.github.io" },
@@ -126,7 +132,8 @@ const modelProviders = [
 const openRouterProvidersStructure = [{ provider: "OpenRouter", models: [] as string[] }];
 
 interface FooterProps {
-  onSendMessage?: (message: string, file?: File) => void; // Accept optional file
+  // Updated onSendMessage signature
+  onSendMessage?: (message: string, fileUploadData?: FileUploadData) => void;
   onNewChat?: () => void; // Add optional onNewChat prop
   onRestoreChat?: (sessionId: string) => void; // Add optional onRestoreChat prop
 }
@@ -144,6 +151,7 @@ export function Footer({ onSendMessage, onNewChat, onRestoreChat }: FooterProps)
     const [fileContent, setFileContent] = useState<string | null>(null); // State for file text content
     const [isFileContentModalOpen, setIsFileContentModalOpen] = useState(false); // State for content modal
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const [sendImageData, setSendImageData] = useState<boolean>(true); // State for the image data switch
 
     // Get context values and setters
     const {
@@ -157,14 +165,21 @@ export function Footer({ onSendMessage, onNewChat, onRestoreChat }: FooterProps)
         setAvailableOpenRouterModels,
         isLoadingOpenRouterModels,
         setIsLoadingOpenRouterModels,
-        enabledModels // Use the derived list from context
+        enabledModels, // Use the derived list from context
+        theme, // Use context state
+        setTheme,
+        textSizeScale, // Use context state
+        setTextSizeScale,
+        chatMode, // Use context state
+        setChatMode,
     } = useAppState();
 
+
     // State for Chat Settings (UI only, context holds the actual state)
-    const [theme, setTheme] = useState<'light' | 'dark'>('light');
+    // const [theme, setTheme] = useState<'light' | 'dark'>('light'); // Moved to context
     // Use percentage scale for text size internally, default to 100%
-    const [textSizeScale, setTextSizeScale] = useState<number>(100);
-    const [chatMode, setChatMode] = useState<'normal' | 'compact'>('normal');
+    // const [textSizeScale, setTextSizeScale] = useState<number>(100); // Moved to context
+    // const [chatMode, setChatMode] = useState<'normal' | 'compact'>('normal'); // Moved to context
     const [showEnabledOnly, setShowEnabledOnly] = useState(false);
     const [isChatSettingsOpen, setIsChatSettingsOpen] = useState(false);
     const [isHistoryOpen, setIsHistoryOpen] = useState(false);
@@ -312,13 +327,18 @@ export function Footer({ onSendMessage, onNewChat, onRestoreChat }: FooterProps)
     };
 
     const handleSend = () => {
-        // Pass both inputValue and the File object (if present)
-        if (onSendMessage && (inputValue.trim() || uploadedFile)) {
-            onSendMessage(inputValue, uploadedFile || undefined); // Pass File object
+         // Pass FileUploadData object if a file is uploaded
+        const fileUploadData: FileUploadData | undefined = uploadedFile
+            ? { file: uploadedFile, sendImageData: sendImageData }
+            : undefined;
+
+        if (onSendMessage && (inputValue.trim() || fileUploadData)) {
+            onSendMessage(inputValue, fileUploadData); // Pass FileUploadData object
             setInputValue('');
             setUploadedFile(null); // Clear file object
             setFilePreview(null); // Clear preview
             setFileContent(null); // Clear content
+             setSendImageData(true); // Reset switch to default
             if (fileInputRef.current) {
                 fileInputRef.current.value = ""; // Reset file input visually
             }
@@ -350,6 +370,7 @@ export function Footer({ onSendMessage, onNewChat, onRestoreChat }: FooterProps)
             setUploadedFile(null);
             setFilePreview(null);
             setFileContent(null);
+             setSendImageData(true); // Reset switch
              if (fileInputRef.current) {
                 fileInputRef.current.value = ""; // Reset file input visually
             }
@@ -396,6 +417,7 @@ export function Footer({ onSendMessage, onNewChat, onRestoreChat }: FooterProps)
             setUploadedFile(null);
             setFilePreview(null);
             setFileContent(null);
+             setSendImageData(true); // Reset switch
              if (fileInputRef.current) {
                 fileInputRef.current.value = ""; // Reset file input visually
             }
@@ -411,6 +433,7 @@ export function Footer({ onSendMessage, onNewChat, onRestoreChat }: FooterProps)
             setUploadedFile(file); // Store the File object
             setFileContent(null); // Reset content when new file selected
             setFilePreview(null); // Reset preview
+            setSendImageData(true); // Default to true when new image is selected
 
             const isImage = file.type.startsWith('image/');
             const isText = file.type.startsWith('text/') || ['application/json', 'application/javascript', 'application/xml', 'application/pdf'].includes(file.type);
@@ -451,6 +474,7 @@ export function Footer({ onSendMessage, onNewChat, onRestoreChat }: FooterProps)
         setUploadedFile(null);
         setFilePreview(null);
         setFileContent(null);
+        setSendImageData(true); // Reset switch
         if (fileInputRef.current) {
             fileInputRef.current.value = ""; // Reset file input
         }
@@ -530,32 +554,7 @@ export function Footer({ onSendMessage, onNewChat, onRestoreChat }: FooterProps)
 
 
      // Load UI settings on mount (Model settings loaded by context provider)
-    useEffect(() => {
-        if (typeof window !== 'undefined') {
-            const savedSettings = localStorage.getItem('chatSettings');
-            if (savedSettings) {
-                try {
-                    const parsedSettings = JSON.parse(savedSettings);
-                    // Set local state for UI controls
-                    setTheme(parsedSettings.theme || 'light');
-                    // Load percentage scale, default to 100 if not saved
-                    setTextSizeScale(parsedSettings.textSizeScale || 100);
-                    setChatMode(parsedSettings.chatMode || 'normal');
-
-                     // Apply loaded UI settings immediately
-                    document.documentElement.classList.toggle('dark', parsedSettings.theme === 'dark');
-                    // Calculate initial font size from loaded scale
-                    const initialFontSizePx = (BASE_FONT_SIZE_PX * (parsedSettings.textSizeScale || 100)) / 100;
-                    document.documentElement.style.setProperty('--chat-text-size', `${initialFontSizePx}px`);
-                    document.body.dataset.chatMode = parsedSettings.chatMode || 'normal'; // Apply chat mode
-
-                } catch (e) {
-                    console.error("Failed to parse saved chat settings for UI", e);
-                }
-            }
-        }
-    }, []); // Empty dependency array
-
+     // This effect is now handled within the AppStateProvider itself.
 
      // Fetch OpenRouter models when the switch is activated
     useEffect(() => {
@@ -696,7 +695,7 @@ export function Footer({ onSendMessage, onNewChat, onRestoreChat }: FooterProps)
 
                                      {/* File Preview Area (inside dialog) */}
                                      {uploadedFile && (
-                                        <div className="relative group rounded border p-2 min-h-[60px] flex items-center justify-center">
+                                        <div className="relative group rounded border p-2 min-h-[60px] flex flex-col items-center justify-center space-y-2">
                                              <Button variant="ghost" size="icon" onClick={handleRemoveFile} className="absolute top-1 right-1 h-5 w-5 opacity-50 group-hover:opacity-100 z-10" aria-label="Remove file">
                                                 <X className="h-3 w-3"/>
                                              </Button>
@@ -716,6 +715,18 @@ export function Footer({ onSendMessage, onNewChat, onRestoreChat }: FooterProps)
                                                     )}
                                                 </div>
                                             )}
+                                            {/* Image Data Switch - Show only for images */}
+                                             {uploadedFile.type.startsWith('image/') && (
+                                                <div className="flex items-center space-x-2 pt-2 border-t w-full justify-center">
+                                                    <Switch
+                                                        id="send-image-data"
+                                                        checked={sendImageData}
+                                                        onCheckedChange={setSendImageData}
+                                                        aria-label="Send image data"
+                                                    />
+                                                    <Label htmlFor="send-image-data" className="text-xs text-muted-foreground">Send Image Data (Base64)</Label>
+                                                </div>
+                                             )}
                                         </div>
                                     )}
                                      <DialogFooter className="mt-4">

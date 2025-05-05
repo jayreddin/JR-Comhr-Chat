@@ -9,7 +9,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { useAppState } from '@/context/app-state-context'; // Import context hook
 import { toast } from '@/hooks/use-toast'; // For error notifications
-import { Footer } from '@/components/footer'; // Import Footer for sending messages
+import { Footer, FileUploadData } from '@/components/footer'; // Import Footer and necessary types
 import { Copy, Trash2, RefreshCw, Volume2, File as FileIcon } from 'lucide-react'; // Icons for message actions
 import { cn } from '@/lib/utils'; // Utility for class names
 import { Skeleton } from '@/components/ui/skeleton'; // Import Skeleton for loading
@@ -154,7 +154,13 @@ export default function ChatPage() {
              messagesWithoutOldResponse = messages.filter((_, idx) => idx !== messageIndex + 1);
         }
         setMessages(messagesWithoutOldResponse); // Update state before sending
-        handleSendMessage(messageToResend.text, messageToResend.fileInfo); // Pass fileInfo if it exists
+        // We assume if resending, the user intended to send the file data originally.
+        // If the fileInfo exists, construct the FileUploadData object.
+        const fileUploadData: FileUploadData | undefined = messageToResend.fileInfo
+            ? { file: null, sendImageData: true } // Use true as default for resend
+            : undefined;
+
+        handleSendMessage(messageToResend.text, fileUploadData, messageToResend.fileInfo);
     } else if (messageToResend.sender === 'ai') {
         // Logic to regenerate AI response
         // Find the preceding user message (chronologically *before* the AI message,
@@ -166,8 +172,11 @@ export default function ChatPage() {
             const messagesWithoutCurrentAi = messages.filter((_, idx) => idx !== messageIndex);
             setMessages(messagesWithoutCurrentAi);
             // Resend the user message that prompted this AI response
-            // Pass fileInfo if it exists on the user message
-            handleSendMessage(precedingUserMessage.text, precedingUserMessage.fileInfo);
+            // Construct FileUploadData if fileInfo exists on the user message
+             const fileUploadData: FileUploadData | undefined = precedingUserMessage.fileInfo
+                ? { file: null, sendImageData: true } // Use true as default for regeneration
+                : undefined;
+            handleSendMessage(precedingUserMessage.text, fileUploadData, precedingUserMessage.fileInfo);
         } else {
              // If it's the very first message (AI greeting maybe?) or no user message precedes
              toast({ variant: "destructive", title: "Regenerate Failed", description: "Cannot regenerate response without the corresponding user message." });
@@ -398,10 +407,14 @@ export default function ChatPage() {
   };
 
 
-   // handleSendMessage now accepts existing fileInfo for resend scenarios
-  const handleSendMessage = async (inputText: string, fileOrInfo?: File | Message['fileInfo']) => {
+  // handleSendMessage updated to accept fileUploadData and optional existingFileInfo
+  const handleSendMessage = async (
+    inputText: string,
+    fileUploadData?: FileUploadData,
+    existingFileInfo?: Message['fileInfo'] // For resend/regenerate
+   ) => {
     const trimmedInput = inputText.trim();
-    const hasFile = !!fileOrInfo;
+    const hasFile = !!fileUploadData || !!existingFileInfo;
 
     if (!trimmedInput && !hasFile) return; // Need either text or a file
 
@@ -424,66 +437,69 @@ export default function ChatPage() {
     }
 
     let fileDataUri: string | undefined = undefined;
-    let fileInfoForMessage: Message['fileInfo'] = undefined;
+    let fileInfoForMessage: Message['fileInfo'] = existingFileInfo; // Use existing if provided
     let textToSend = trimmedInput; // Start with the user's typed text
+    let sendImageDataFlag = fileUploadData?.sendImageData ?? false; // Default to false
 
-    // Handle file processing (if a new File is provided)
-     if (fileOrInfo instanceof File) {
-        const file = fileOrInfo;
+    // Handle NEW file processing (if fileUploadData is provided and has a file)
+    if (fileUploadData && fileUploadData.file) {
+        const file = fileUploadData.file;
+        sendImageDataFlag = fileUploadData.sendImageData ?? false; // Use flag from upload data
         const isImage = file.type.startsWith('image/');
         const isText = file.type.startsWith('text/') || ['application/json', 'application/javascript', 'application/xml'].includes(file.type);
-         const isPdf = file.type === 'application/pdf'; // Basic PDF check
+        const isPdf = file.type === 'application/pdf'; // Basic PDF check
 
         try {
             let fileContent: string | undefined = undefined;
             if (isImage) {
-                fileDataUri = await fileToDataUri(file);
+                // Only generate data URI if sending image data is intended
+                if (sendImageDataFlag) {
+                    fileDataUri = await fileToDataUri(file);
+                }
             } else if (isText) {
-                 fileContent = await fileToText(file);
+                fileContent = await fileToText(file);
             } else if (isPdf) {
-                 // Handle PDF - For now, just indicate it's a PDF. Advanced parsing would go here.
-                 fileContent = `[Content of PDF file: ${file.name}]`;
+                fileContent = `[Content of PDF file: ${file.name}]`;
             } else {
-                 // Other binary types
-                 fileContent = `[Binary file attached: ${file.name}, Type: ${file.type}]`;
+                fileContent = `[Binary file attached: ${file.name}, Type: ${file.type}]`;
             }
 
             fileInfoForMessage = {
                 name: file.name,
                 type: file.type,
-                previewUrl: isImage ? fileDataUri : undefined,
+                // Only include previewUrl if it was generated (i.e., image and sendImageDataFlag is true)
+                previewUrl: isImage && sendImageDataFlag ? fileDataUri : undefined,
                 content: fileContent
             };
 
             // Prepend file information to the text prompt for the AI
-             if (fileContent) {
+            if (fileContent) {
                 textToSend = `[User has attached a file: ${file.name} (${file.type}, ${Math.round(file.size / 1024)} KB)]\n--- File Content Start ---\n${fileContent}\n--- File Content End ---\n\nUser's message: ${trimmedInput}`;
-             } else if (isImage) {
-                 // If it's an image, the visual data is sent separately (if supported)
-                 textToSend = `[User has attached an image: ${file.name} (${file.type}, ${Math.round(file.size / 1024)} KB)]\n\nUser's message: ${trimmedInput}`;
-             } else {
-                 // Fallback for unhandled types
-                  textToSend = `[User has attached a file: ${file.name} (${file.type}, ${Math.round(file.size / 1024)} KB)]\n\nUser's message: ${trimmedInput}`;
-             }
-
+            } else if (isImage) {
+                // Include info even if data isn't sent
+                textToSend = `[User has attached an image: ${file.name} (${file.type}, ${Math.round(file.size / 1024)} KB)]\n\nUser's message: ${trimmedInput}`;
+            } else {
+                textToSend = `[User has attached a file: ${file.name} (${file.type}, ${Math.round(file.size / 1024)} KB)]\n\nUser's message: ${trimmedInput}`;
+            }
 
         } catch (error) {
             console.error("Error processing file:", error);
             toast({ variant: "destructive", title: "File Error", description: `Could not process the attached file: ${file.name}` });
             return; // Stop sending if file processing fails
         }
-    } else if (fileOrInfo) { // If existing fileInfo is provided (resend scenario)
-         fileInfoForMessage = fileOrInfo;
-         fileDataUri = fileInfoForMessage.previewUrl; // Use existing preview URL for image data
+    } else if (existingFileInfo) { // Handle RESEND/REGENERATE scenario
+        // Use existing fileInfoForMessage
+        fileDataUri = existingFileInfo.previewUrl; // Use existing preview URL for image data
+        sendImageDataFlag = true; // Assume sending data if resending/regenerating with a file
 
-         // Reconstruct the textToSend based on existing fileInfo
-         if (fileInfoForMessage.content) {
-             textToSend = `[User has attached a file: ${fileInfoForMessage.name} (${fileInfoForMessage.type})]\n--- File Content Start ---\n${fileInfoForMessage.content}\n--- File Content End ---\n\nUser's message: ${trimmedInput}`;
-         } else if (fileInfoForMessage.type.startsWith('image/')) {
-             textToSend = `[User has attached an image: ${fileInfoForMessage.name} (${fileInfoForMessage.type})]\n\nUser's message: ${trimmedInput}`;
-         } else {
-             textToSend = `[User has attached a file: ${fileInfoForMessage.name} (${fileInfoForMessage.type})]\n\nUser's message: ${trimmedInput}`;
-         }
+        // Reconstruct the textToSend based on existing fileInfo
+        if (existingFileInfo.content) {
+            textToSend = `[User has attached a file: ${existingFileInfo.name} (${existingFileInfo.type})]\n--- File Content Start ---\n${existingFileInfo.content}\n--- File Content End ---\n\nUser's message: ${trimmedInput}`;
+        } else if (existingFileInfo.type.startsWith('image/')) {
+            textToSend = `[User has attached an image: ${existingFileInfo.name} (${existingFileInfo.type})]\n\nUser's message: ${trimmedInput}`;
+        } else {
+            textToSend = `[User has attached a file: ${existingFileInfo.name} (${existingFileInfo.type})]\n\nUser's message: ${trimmedInput}`;
+        }
     }
 
 
@@ -533,7 +549,6 @@ export default function ChatPage() {
              stream: true,
          };
 
-         // Add image data URI if available and model supports vision
          // Basic check: Assume models containing 'vision', 'gpt-4o', 'claude-3', 'gemini', 'qwen', 'phi-4' support images
          const modelSupportsVision = puterModelName.includes('vision')
             || puterModelName.includes('gpt-4o')
@@ -542,21 +557,25 @@ export default function ChatPage() {
             || puterModelName.includes('qwen')     // Qwen-VL models support vision
             || puterModelName.includes('phi-4');   // Phi-4 models support vision
 
-
-         if (fileDataUri && fileInfoForMessage?.type.startsWith('image/') && modelSupportsVision) {
+        // Add image data URI ONLY if available, it's an image, model supports vision, AND sendImageData flag is true
+        if (fileDataUri && fileInfoForMessage?.type.startsWith('image/') && modelSupportsVision && sendImageDataFlag) {
              chatOptions.image = fileDataUri;
-             console.log("Sending image to vision model.");
-         } else if (fileInfoForMessage && !fileInfoForMessage?.type.startsWith('image/')) {
+             console.log("Sending image data (base64) to vision model.");
+        } else if (fileInfoForMessage && !fileInfoForMessage?.type.startsWith('image/')) {
              // Non-image file attached, content is in the prompt
              console.log("Non-image file attached. Content included in the prompt.");
              // No specific warning needed here as content is sent
-         } else if (fileDataUri && !modelSupportsVision) {
+        } else if (fileDataUri && !modelSupportsVision) {
               console.warn("Image file attached, but selected model may not support vision.");
               if (!nonImageFileWarningShown) { // Show toast only once per session
                  toast({ title: "Warning", description: "Image file attached, but the selected model might not support image input. Image data will be ignored." });
                  setNonImageFileWarningShown(true);
               }
-         }
+        } else if (fileDataUri && modelSupportsVision && !sendImageDataFlag) {
+            console.log("Image file attached and model supports vision, but sending image data is disabled.");
+            // Optional: Add a specific toast message here if needed
+        }
+
 
          chatArgs.push(chatOptions);
 
@@ -712,7 +731,7 @@ export default function ChatPage() {
     // Pass restore function to PageLayout -> Footer
     <PageLayout
         currentPageName="Chat"
-        onSendMessage={handleSendMessage} // Pass handleSendMessage which now accepts file
+        onSendMessage={handleSendMessage} // Pass handleSendMessage which now accepts FileUploadData
         onNewChat={handleNewChat}
         onRestoreChat={handleRestoreChatSession} // Pass restore function
     >
@@ -812,5 +831,3 @@ export default function ChatPage() {
     </PageLayout>
   );
 }
-
-    
