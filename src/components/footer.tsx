@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Popover,
   PopoverContent,
@@ -138,6 +138,7 @@ export function Footer({ onSendMessage }: FooterProps) {
     const [availableOpenRouterModels, setAvailableOpenRouterModels] = useState<string[]>([]); // State for fetched OR models
     const [isLoadingOpenRouterModels, setIsLoadingOpenRouterModels] = useState(false); // Loading state for OR fetch
     const [activeOpenRouterModels, setActiveOpenRouterModels] = useState<string[]>([]); // Selected OR models
+    const [showEnabledOnly, setShowEnabledOnly] = useState(false); // State for the new switch
     const [isChatSettingsOpen, setIsChatSettingsOpen] = useState(false);
     const [isHistoryOpen, setIsHistoryOpen] = useState(false);
     const [isFileUploadOpen, setIsFileUploadOpen] = useState(false);
@@ -505,6 +506,12 @@ export function Footer({ onSendMessage }: FooterProps) {
         const setActiveFunc = providerType === 'default' ? setActiveModels : setActiveOpenRouterModels;
         setActiveFunc([]);
     };
+
+    // Calculate all currently enabled models
+    const allEnabledModels = useMemo(() => {
+        return [...activeModels, ...activeOpenRouterModels];
+    }, [activeModels, activeOpenRouterModels]);
+
     // --- End Control Bar Actions ---
 
 
@@ -644,48 +651,80 @@ export function Footer({ onSendMessage }: FooterProps) {
                                         <TabsContent value="models">
                                             <Card>
                                                  <CardContent className="space-y-4 pt-6 scrollbar-hide"> {/* Added pt-6 and scrollbar-hide */}
-                                                    {/* Default Models Box */}
-                                                    <ModelSelectionBox
-                                                        title="Default Models"
-                                                        providers={modelProviders}
-                                                        activeModels={activeModels}
-                                                        onToggle={(model) => handleModelToggle(model, 'default')}
-                                                        onSelectAll={() => handleSelectAllModels('default')}
-                                                        onDeselectAll={() => handleDeselectAllModels('default')}
-                                                    />
 
-                                                    {/* OpenRouter Activation */}
-                                                    <div className="flex items-center space-x-2 pt-4 border-t">
+                                                    {/* Show Enabled Models Only Switch */}
+                                                    <div className="flex items-center space-x-2 pb-4 border-b">
                                                         <Switch
-                                                           id="openrouter-switch"
-                                                           checked={openRouterActive}
-                                                           onCheckedChange={setOpenRouterActive}
-                                                           disabled={isLoadingOpenRouterModels} // Disable while loading
+                                                            id="show-enabled-switch"
+                                                            checked={showEnabledOnly}
+                                                            onCheckedChange={setShowEnabledOnly}
                                                         />
-                                                         <Label htmlFor="openrouter-switch" className={cn(isLoadingOpenRouterModels && "opacity-50")}>
-                                                            Activate OpenRouter Models {isLoadingOpenRouterModels && <Loader2 className="h-4 w-4 animate-spin inline ml-1" />}
+                                                        <Label htmlFor="show-enabled-switch">
+                                                            Show Enabled Models Only
                                                         </Label>
                                                     </div>
 
-                                                     {/* OpenRouter Models Box (Conditional) */}
-                                                     {openRouterActive && (
+                                                     {/* Conditional Rendering based on the switch */}
+                                                     {showEnabledOnly ? (
+                                                        <EnabledModelsBox
+                                                            allEnabledModels={allEnabledModels}
+                                                            activeModels={activeModels}
+                                                            activeOpenRouterModels={activeOpenRouterModels}
+                                                            onToggle={(model) => {
+                                                                 // Determine which list the model belongs to and toggle it
+                                                                 if (modelProviders.some(p => p.models.includes(model))) {
+                                                                     handleModelToggle(model, 'default');
+                                                                 } else if (availableOpenRouterModels.includes(model)) {
+                                                                     handleModelToggle(model, 'openrouter');
+                                                                 }
+                                                             }}
+                                                        />
+                                                     ) : (
                                                         <>
-                                                            {isLoadingOpenRouterModels ? (
-                                                                <div className="flex justify-center items-center h-48 border rounded-md">
-                                                                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                                                                </div>
-                                                            ) : availableOpenRouterModels.length > 0 ? (
-                                                                <ModelSelectionBox
-                                                                    title="OpenRouter Models"
-                                                                    // Use the fetched models, grouped under "OpenRouter"
-                                                                    providers={[{ provider: "OpenRouter", models: availableOpenRouterModels }]}
-                                                                    activeModels={activeOpenRouterModels}
-                                                                    onToggle={(model) => handleModelToggle(model, 'openrouter')}
-                                                                    onSelectAll={() => handleSelectAllModels('openrouter')}
-                                                                    onDeselectAll={() => handleDeselectAllModels('openrouter')}
+                                                            {/* Default Models Box */}
+                                                            <ModelSelectionBox
+                                                                title="Default Models"
+                                                                providers={modelProviders}
+                                                                activeModels={activeModels}
+                                                                onToggle={(model) => handleModelToggle(model, 'default')}
+                                                                onSelectAll={() => handleSelectAllModels('default')}
+                                                                onDeselectAll={() => handleDeselectAllModels('default')}
+                                                            />
+
+                                                            {/* OpenRouter Activation */}
+                                                            <div className="flex items-center space-x-2 pt-4 border-t">
+                                                                <Switch
+                                                                id="openrouter-switch"
+                                                                checked={openRouterActive}
+                                                                onCheckedChange={setOpenRouterActive}
+                                                                disabled={isLoadingOpenRouterModels} // Disable while loading
                                                                 />
-                                                            ) : (
-                                                                 <p className="text-sm text-muted-foreground text-center py-4">No OpenRouter models loaded or available.</p>
+                                                                <Label htmlFor="openrouter-switch" className={cn(isLoadingOpenRouterModels && "opacity-50")}>
+                                                                    Activate OpenRouter Models {isLoadingOpenRouterModels && <Loader2 className="h-4 w-4 animate-spin inline ml-1" />}
+                                                                </Label>
+                                                            </div>
+
+                                                            {/* OpenRouter Models Box (Conditional) */}
+                                                            {openRouterActive && (
+                                                                <>
+                                                                    {isLoadingOpenRouterModels ? (
+                                                                        <div className="flex justify-center items-center h-48 border rounded-md">
+                                                                            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                                                                        </div>
+                                                                    ) : availableOpenRouterModels.length > 0 ? (
+                                                                        <ModelSelectionBox
+                                                                            title="OpenRouter Models"
+                                                                            // Use the fetched models, grouped under "OpenRouter"
+                                                                            providers={[{ provider: "OpenRouter", models: availableOpenRouterModels }]}
+                                                                            activeModels={activeOpenRouterModels}
+                                                                            onToggle={(model) => handleModelToggle(model, 'openrouter')}
+                                                                            onSelectAll={() => handleSelectAllModels('openrouter')}
+                                                                            onDeselectAll={() => handleDeselectAllModels('openrouter')}
+                                                                        />
+                                                                    ) : (
+                                                                        <p className="text-sm text-muted-foreground text-center py-4">No OpenRouter models loaded or available.</p>
+                                                                    )}
+                                                                </>
                                                             )}
                                                         </>
                                                      )}
@@ -813,7 +852,9 @@ function ModelSelectionBox({ title, providers, activeModels, onToggle, onSelectA
     // Get the total number of models across all providers in this box
     const totalModelsInBox = providers.reduce((acc, provider) => acc + provider.models.length, 0);
     const allModelsSelected = activeModels.length >= totalModelsInBox && providers.every(p => p.models.every(m => activeModels.includes(m)));
+    // Check if no models *from these specific providers* are selected
     const noModelsSelected = providers.every(p => p.models.every(m => !activeModels.includes(m)));
+
 
     return (
         <Card className={cn(isMinimized && "overflow-hidden")}> {/* Use overflow-hidden when minimized */}
@@ -860,3 +901,94 @@ function ModelSelectionBox({ title, providers, activeModels, onToggle, onSelectA
         </Card>
     );
 }
+
+// Helper component for Enabled Models Box in Settings
+interface EnabledModelsBoxProps {
+    allEnabledModels: string[];
+    activeModels: string[]; // Need original state to determine source
+    activeOpenRouterModels: string[]; // Need original state to determine source
+    onToggle: (modelName: string) => void;
+}
+
+function EnabledModelsBox({ allEnabledModels, activeModels, activeOpenRouterModels, onToggle }: EnabledModelsBoxProps) {
+    const [isMinimized, setIsMinimized] = useState(false);
+
+    // Group models by provider for display
+    const groupedEnabledModels = useMemo(() => {
+        const groups: { [provider: string]: string[] } = {};
+
+        allEnabledModels.forEach(model => {
+            let providerName = "Unknown";
+
+            // Find provider from default list
+            const defaultProvider = modelProviders.find(p => p.models.includes(model));
+            if (defaultProvider) {
+                providerName = defaultProvider.provider;
+            }
+            // Check if it's an OpenRouter model (assuming they don't overlap with default list)
+            else if (activeOpenRouterModels.includes(model)) {
+                providerName = "OpenRouter";
+            }
+            // More robust check if availableOpenRouterModels is passed and includes the model
+            // else if (availableOpenRouterModels.includes(model)) { // If you pass availableOpenRouterModels
+            //     providerName = "OpenRouter";
+            // }
+
+
+            if (!groups[providerName]) {
+                groups[providerName] = [];
+            }
+            groups[providerName].push(model);
+        });
+        // Sort providers alphabetically, except maybe put 'OpenRouter' last?
+        return Object.entries(groups).sort(([providerA], [providerB]) => providerA.localeCompare(providerB));
+
+    }, [allEnabledModels, activeOpenRouterModels]); // Depend on the list of enabled models and OR list
+
+    return (
+        <Card className={cn(isMinimized && "overflow-hidden")}>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-base">Enabled Models ({allEnabledModels.length})</CardTitle>
+                 <div className="flex items-center space-x-1">
+                    {/* No Select/Deselect All here as it operates on the filtered view */}
+                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setIsMinimized(!isMinimized)}>
+                        <Minimize2 className="h-4 w-4" />
+                    </Button>
+                 </div>
+            </CardHeader>
+            {!isMinimized && (
+                <CardContent>
+                    <ScrollArea className="h-48 border rounded-md p-2 scrollbar-hide">
+                        {allEnabledModels.length === 0 ? (
+                            <p className="text-sm text-muted-foreground text-center py-4">No models enabled.</p>
+                        ) : (
+                            <div className="space-y-3">
+                                {groupedEnabledModels.map(([provider, models]) => (
+                                    <div key={provider}>
+                                        <h4 className="text-sm font-medium mb-1">{provider}</h4>
+                                        <div className="flex flex-col space-y-1">
+                                            {models.map(model => (
+                                                <div key={model} className="flex items-center space-x-2">
+                                                    <Checkbox
+                                                        id={`enabled-${model}`}
+                                                        // Always checked in this view, unchecking triggers toggle
+                                                        checked={true}
+                                                        onCheckedChange={() => onToggle(model)} // Unchecking disables it
+                                                    />
+                                                    <Label htmlFor={`enabled-${model}`} className="text-xs font-normal cursor-pointer">
+                                                        {model.split('/').pop()}
+                                                    </Label>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </ScrollArea>
+                </CardContent>
+            )}
+        </Card>
+    );
+}
+

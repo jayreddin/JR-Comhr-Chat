@@ -68,73 +68,58 @@ const navItems: NavItem[] = [
   { name: "More", href: "/more", icon: MoreHorizontal },
 ];
 
-// AI Model Definitions
-const modelProviders = [
-  {
-    provider: "OpenAI",
-    models: [
-      "gpt-4o-mini", "gpt-4o", "o1", "o1-mini", "o1-pro", "o3", "o3-mini", "o4-mini",
-      "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano", "gpt-4.5-preview",
-    ],
-    defaultModel: "gpt-4o-mini",
-  },
-  {
-    provider: "Anthropic",
-    models: ["claude-3-7-sonnet", "claude-3-5-sonnet"],
-  },
-  {
-    provider: "DeepSeek",
-    models: ["deepseek-chat", "deepseek-reasoner"],
-  },
-  {
-    // Provider name mapping for Puter.js (use 'google' for Gemini models)
-    provider: "Gemini",
-    // Updated Gemini model names based on Puter docs
-    models: [
-        "google/gemini-2.0-flash-lite-001", // Match example
-        "google/gemini-flash-1.5", // Match example, might be google/gemini-flash-1.5-8b? Verify if issues
-        "google/gemma-2-27b-it",
-        "google/gemini-2.5-flash-preview",
-        "google/gemini-2.5-pro-exp-03-25:free",
-        // Added more from Gemini doc example
-        "google/gemini-pro-1.5",
-        "google/gemini-pro",
-    ],
-  },
-  {
-    // Provider name mapping for Puter.js (use 'meta-llama' prefix)
-    provider: "Meta",
-    // Updated Llama model names based on Puter docs
-    models: [
-      "meta-llama/llama-3.1-8b-instruct", // Match example
-      "meta-llama/llama-3.1-70b-instruct", // Match example
-      "meta-llama/llama-3.1-405b-instruct", // Match example
-      "meta-llama/llama-4-maverick",
-      "meta-llama/llama-4-scout",
-      "meta-llama/llama-3.3-70b-instruct",
-      "meta-llama/llama-3-8b-instruct",
-      "meta-llama/llama-3-70b-instruct",
-      "meta-llama/llama-2-70b-chat",
-      "meta-llama/llama-guard-3-8b",
-    ],
-  },
-  {
-    // Provider name mapping for Puter.js
-    provider: "Mistral",
-    // Updated Mistral model names based on Puter docs
-    models: [
-        "mistral-large-latest",
-        "pixtral-large-latest",
-        "codestral-latest"
-    ],
-  },
-  {
-    // Provider name mapping for Puter.js (use 'x-ai' prefix)
-    provider: "XAI",
-     // Updated Grok model names based on Puter docs
-    models: ["x-ai/grok-3-beta"],
-  },
+// AI Model Definitions (Initial structure, actual list managed by context)
+const modelProvidersStructure = [
+  { provider: "OpenAI", models: [] as string[] },
+  { provider: "Anthropic", models: [] as string[] },
+  { provider: "DeepSeek", models: [] as string[] },
+  { provider: "Gemini", models: [] as string[] },
+  { provider: "Meta", models: [] as string[] },
+  { provider: "Mistral", models: [] as string[] },
+  { provider: "XAI", models: [] as string[] },
+  { provider: "OpenRouter", models: [] as string[] }, // Add OpenRouter placeholder
 ];
+
+// Helper function to group enabled models by provider
+const groupModelsByProvider = (enabledModels: string[]) => {
+    const grouped: { provider: string; models: string[] }[] = JSON.parse(JSON.stringify(modelProvidersStructure)); // Deep copy
+
+    enabledModels.forEach(model => {
+        let found = false;
+        for (const providerGroup of grouped) {
+            // Check if model belongs to a known default provider based on prefix or known list
+            if (
+                (providerGroup.provider === "OpenAI" && (model.startsWith('gpt') || model.startsWith('o'))) ||
+                (providerGroup.provider === "Anthropic" && model.startsWith('claude')) ||
+                (providerGroup.provider === "DeepSeek" && model.startsWith('deepseek')) ||
+                (providerGroup.provider === "Gemini" && model.startsWith('google/')) ||
+                (providerGroup.provider === "Meta" && model.startsWith('meta-llama/')) ||
+                (providerGroup.provider === "Mistral" && (model.startsWith('mistral') || model.startsWith('pixtral') || model.startsWith('codestral'))) ||
+                (providerGroup.provider === "XAI" && model.startsWith('x-ai/'))
+            ) {
+                providerGroup.models.push(model);
+                found = true;
+                break;
+            }
+        }
+        // If not found in default providers, assume it's an OpenRouter model (or unknown)
+        if (!found) {
+            const openRouterProvider = grouped.find(p => p.provider === "OpenRouter");
+            if (openRouterProvider) {
+                openRouterProvider.models.push(model);
+            } else {
+                // Handle potentially unknown models if needed
+                console.warn(`Model "${model}" doesn't match known provider prefixes.`);
+                // Optionally add to a generic "Other" group
+            }
+        }
+    });
+
+    // Filter out providers with no enabled models and sort models within each provider
+    return grouped
+        .filter(group => group.models.length > 0)
+        .map(group => ({ ...group, models: group.models.sort() }));
+};
 
 
 interface AppHeaderProps {
@@ -144,13 +129,17 @@ interface AppHeaderProps {
 export function AppHeader({ currentPageName }: AppHeaderProps) {
   const router = useRouter();
   const pathname = usePathname();
-  const { selectedModel, setSelectedModel } = useAppState(); // Use context
+  // Use context for selected model and the list of enabled models
+  const { selectedModel, setSelectedModel, enabledModels } = useAppState();
   const [activePage, setActivePage] = useState<NavItem | null>(null);
   const [isSignedIn, setIsSignedIn] = useState<boolean>(false);
   const [username, setUsername] = useState<string | null>(null);
   const [puterLoaded, setPuterLoaded] = useState<boolean>(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isPageSwitcherOpen, setIsPageSwitcherOpen] = useState(false);
+
+  // Group the enabled models from context for the dropdown
+  const groupedEnabledModels = groupModelsByProvider(enabledModels);
 
 
   const checkAuthStatus = useCallback(async () => {
@@ -334,16 +323,23 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
               </DropdownMenuTrigger>
               <DropdownMenuContent className="w-64 max-h-96 overflow-y-auto">
                  <DropdownMenuRadioGroup value={selectedModel} onValueChange={setSelectedModel}>
-                    {modelProviders.map(provider => (
-                        <DropdownMenuGroup key={provider.provider}>
-                        <DropdownMenuLabel>{provider.provider}</DropdownMenuLabel>
-                        {provider.models.map(model => (
-                            <DropdownMenuRadioItem key={model} value={model}>
-                              {getModelDisplayName(model)}
-                            </DropdownMenuRadioItem>
-                        ))}
+                    {/* Map over the grouped ENABLED models */}
+                    {groupedEnabledModels.map(providerGroup => (
+                        <DropdownMenuGroup key={providerGroup.provider}>
+                            <DropdownMenuLabel>{providerGroup.provider}</DropdownMenuLabel>
+                            {providerGroup.models.map(model => (
+                                <DropdownMenuRadioItem key={model} value={model}>
+                                {getModelDisplayName(model)}
+                                </DropdownMenuRadioItem>
+                            ))}
                         </DropdownMenuGroup>
                     ))}
+                     {/* Show message if no models are enabled */}
+                    {enabledModels.length === 0 && (
+                         <DropdownMenuLabel className="text-muted-foreground text-xs italic text-center py-2">
+                            No models enabled in settings.
+                        </DropdownMenuLabel>
+                    )}
                 </DropdownMenuRadioGroup>
               </DropdownMenuContent>
             </DropdownMenu>
