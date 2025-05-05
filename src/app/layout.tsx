@@ -27,14 +27,17 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning> {/* Suppress hydration warning */}
+      <head>
+          {/* Add Puter.js script here */}
+          <Script src="https://js.puter.com/v2/" strategy="beforeInteractive" />
+      </head>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
          <AppStateProvider> {/* Wrap children with the provider */}
            {children}
            <Toaster />
          </AppStateProvider>
-        {/* Add Puter.js script */}
-        <Script src="https://js.puter.com/v2/" strategy="afterInteractive" />
+        {/* Removed duplicate Puter.js script from here */}
       </body>
     </html>
   );

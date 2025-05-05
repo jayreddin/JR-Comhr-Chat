@@ -160,21 +160,23 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
   const groupedEnabledModels = groupModelsByProvider(enabledModels);
 
 
-  const checkAuthStatus = useCallback(async () => {
-    // Ensure running on client and puter object exists
-    if (typeof window !== 'undefined' && window.puter?.auth) {
-      setPuterLoaded(true); // Mark as loaded if auth object is present
+  const checkAuthStatus = useCallback(async (retryDelay = 300) => {
+    // Ensure running on client
+    if (typeof window === 'undefined') return;
+
+    if (window.puter?.auth) {
+      if (!puterLoaded) setPuterLoaded(true); // Mark as loaded if auth object is present
       try {
-        console.log("Checking Puter auth status..."); // Add log
+        console.log("Checking Puter auth status...");
         const signedIn = await window.puter.auth.isSignedIn();
         setIsSignedIn(signedIn);
         if (signedIn) {
           const user: PuterUser = await window.puter.auth.getUser();
           setUsername(user.username);
-          console.log("User is signed in:", user.username); // Log signed in status
+          console.log("User is signed in:", user.username);
         } else {
           setUsername(null);
-          console.log("User is not signed in."); // Log signed out status
+          console.log("User is not signed in.");
         }
       } catch (error) {
         console.error("Error checking Puter auth status:", error);
@@ -182,20 +184,23 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
         setUsername(null);
       }
     } else {
-        // Optionally retry if Puter hasn't loaded yet
-        if (!puterLoaded) {
-             console.log("Puter not loaded yet, retrying auth check...");
-            setTimeout(checkAuthStatus, 300); // Retry delay
-        } else {
-             console.log("Puter loaded but auth methods not available (or not on client).");
-        }
+      // Optionally retry if Puter hasn't loaded yet
+      if (retryDelay < 5000) { // Limit retries
+        console.log(`Puter not loaded yet, retrying auth check in ${retryDelay}ms...`);
+        setTimeout(() => checkAuthStatus(retryDelay * 2), retryDelay); // Exponential backoff
+      } else {
+        console.error("Puter object or puter.auth not found after multiple retries.");
+        setPuterLoaded(false); // Mark as not loaded if it fails repeatedly
+      }
     }
   }, [puterLoaded]); // Depend on puterLoaded
 
 
+  // Initial auth check on component mount
   useEffect(() => {
     checkAuthStatus();
-  }, [checkAuthStatus]); // Run checkAuthStatus when it or puterLoaded changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Run only once on mount
 
   useEffect(() => {
     const currentPathItem = navItems.find(item => pathname.startsWith(item.href));
@@ -203,7 +208,7 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
   }, [pathname]);
 
  const handleSignIn = async () => {
-    if (!puterLoaded || typeof window === 'undefined' || !window.puter) {
+    if (typeof window === 'undefined' || !window.puter) {
       toast({ variant: "destructive", title: "Error", description: "Authentication service not ready. Please wait a moment and try again." });
       console.error("Puter library not loaded or window not available.");
       return;
@@ -212,52 +217,51 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
     console.log("Attempting sign in...");
 
     try {
-        // Prefer puter.ui.authenticateWithPuter as it's designed for better UI integration, especially on mobile
-        if (window.puter.ui && window.puter.ui.authenticateWithPuter) {
-             console.log("Trying puter.ui.authenticateWithPuter()...");
-             try {
-                 await window.puter.ui.authenticateWithPuter();
-                 console.log("authenticateWithPuter completed (or cancelled). Waiting to check status...");
-                 // Increase delay slightly to give mobile browsers more time after potential popup closure
-                 await new Promise(resolve => setTimeout(resolve, 500));
-                 console.log("Re-checking auth status after authenticateWithPuter attempt.");
-                 await checkAuthStatus();
-                 return;
-             } catch(authUiError) {
-                console.warn("puter.ui.authenticateWithPuter() failed or was cancelled:", authUiError);
-                 if (authUiError instanceof Error && authUiError.message.toLowerCase().includes("cancel")) {
-                     console.log("User cancelled authenticateWithPuter dialog.");
-                     await new Promise(resolve => setTimeout(resolve, 100)); // Short delay before check
-                     await checkAuthStatus();
-                     return;
-                 } else {
-                     console.log("Falling back to puter.auth.signIn() due to authenticateWithPuter error.");
-                     // Proceed to the signIn block below
-                 }
-             }
-        } else {
-             console.log("puter.ui.authenticateWithPuter() not found, using puter.auth.signIn()...");
+      // Prefer puter.ui.authenticateWithPuter for better UI, especially mobile
+      if (window.puter.ui?.authenticateWithPuter) {
+        console.log("Trying puter.ui.authenticateWithPuter()...");
+        try {
+          await window.puter.ui.authenticateWithPuter();
+          console.log("authenticateWithPuter finished (or cancelled).");
+          // Wait a bit longer to allow potential redirects/popup closures, especially on mobile
+          await new Promise(resolve => setTimeout(resolve, 700));
+          console.log("Re-checking auth status after authenticateWithPuter.");
+          await checkAuthStatus(); // Check status after the UI interaction
+          return; // Exit if this method was attempted
+        } catch (authUiError: any) {
+          if (authUiError?.message?.toLowerCase().includes("cancel")) {
+            console.log("User cancelled authenticateWithPuter dialog.");
+            // No need to show error toast for cancellation
+          } else {
+            console.warn("puter.ui.authenticateWithPuter() failed:", authUiError);
+            console.log("Falling back to puter.auth.signIn()...");
+            // Proceed to the signIn block below if authenticateWithPuter fails for other reasons
+          }
         }
+      } else {
+        console.log("puter.ui.authenticateWithPuter() not available, using puter.auth.signIn()...");
+      }
 
-        // Fallback or primary method if authenticateWithPuter isn't available or failed unexpectedly
-        if (window.puter.auth && window.puter.auth.signIn) {
-            await window.puter.auth.signIn();
-            console.log("puter.auth.signIn() completed (or cancelled). Waiting to check status...");
-            // Increase delay slightly for mobile
-            await new Promise(resolve => setTimeout(resolve, 500));
-            console.log("Re-checking auth status after signIn attempt.");
-            await checkAuthStatus();
-        } else {
-            console.error("Puter auth.signIn method not found!");
-            toast({ variant: "destructive", title: "Error", description: "Sign in function not available." });
-        }
+      // Fallback or primary method if authenticateWithPuter isn't available or failed/cancelled
+      if (window.puter.auth?.signIn) {
+        console.log("Trying puter.auth.signIn()...");
+        // signIn doesn't return the user, it just resolves when done
+        await window.puter.auth.signIn();
+        console.log("puter.auth.signIn() finished (or popup closed).");
+        // Wait a bit longer for potential redirects/popup closures
+        await new Promise(resolve => setTimeout(resolve, 700));
+        console.log("Re-checking auth status after signIn.");
+        await checkAuthStatus(); // Check status after signIn attempt
+      } else {
+        console.error("Puter auth.signIn method not found!");
+        toast({ variant: "destructive", title: "Error", description: "Sign in function not available." });
+      }
 
-    } catch (error) {
+    } catch (error: any) {
       console.error("General sign in error caught:", error);
-      if (error instanceof Error && !error.message.toLowerCase().includes("cancel")) {
-         toast({ variant: "destructive", title: "Sign In Failed", description: "An error occurred during sign in. Please try again." });
-      } else if (!(error instanceof Error)) {
-          toast({ variant: "destructive", title: "Sign In Failed", description: "An unexpected error occurred during sign in." });
+      // Avoid showing error toast for user cancellations
+      if (!(error?.message?.toLowerCase().includes("cancel"))) {
+        toast({ variant: "destructive", title: "Sign In Failed", description: "An error occurred during sign in. Please try again." });
       }
       // Ensure status is checked even on error after a delay
       await new Promise(resolve => setTimeout(resolve, 500));
