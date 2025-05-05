@@ -1,7 +1,7 @@
-
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { Input } from "@/components/ui/input";
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
 import { Button } from "@/components/ui/button";
@@ -39,10 +39,9 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { useAppState } from '@/context/app-state-context'; // Import the context hook
-import { useIsMobile } from '@/hooks/use-mobile'; // Import mobile hook
+import { useAppState } from '@/context/app-state-context';
+import { useIsMobile } from '@/hooks/use-mobile';
 
-// Define Puter types locally to avoid TS errors if library isn't loaded server-side
 declare global {
     interface Window {
         puter: any;
@@ -69,7 +68,6 @@ const navItems: NavItem[] = [
   { name: "More", href: "/more", icon: MoreHorizontal },
 ];
 
-// AI Model Definitions (Initial structure, actual list managed by context)
 const modelProvidersStructure = [
   { provider: "OpenAI", models: [] as string[] },
   { provider: "Anthropic", models: [] as string[] },
@@ -78,19 +76,16 @@ const modelProvidersStructure = [
   { provider: "Meta", models: [] as string[] },
   { provider: "Mistral", models: [] as string[] },
   { provider: "XAI", models: [] as string[] },
-  { provider: "OpenRouter", models: [] as string[] }, // Add OpenRouter placeholder
+  { provider: "OpenRouter", models: [] as string[] },
 ];
 
-// Helper function to group enabled models by provider
 const groupModelsByProvider = (enabledModels: string[]) => {
-    const grouped: { provider: string; models: string[] }[] = JSON.parse(JSON.stringify(modelProvidersStructure)); // Deep copy
+    const grouped: { provider: string; models: string[] }[] = JSON.parse(JSON.stringify(modelProvidersStructure));
 
     enabledModels.forEach(model => {
         let found = false;
         for (const providerGroup of grouped) {
-            // Check if model belongs to a known default provider based on prefix or known list
-            // Handle OpenRouter prefix explicitly
-             if (providerGroup.provider === "OpenRouter" && model.startsWith('openrouter:')) {
+            if (providerGroup.provider === "OpenRouter" && model.startsWith('openrouter:')) {
                 providerGroup.models.push(model);
                 found = true;
                 break;
@@ -103,78 +98,123 @@ const groupModelsByProvider = (enabledModels: string[]) => {
                 (providerGroup.provider === "Mistral" && (model.startsWith('mistral') || model.startsWith('pixtral') || model.startsWith('codestral'))) ||
                 (providerGroup.provider === "XAI" && model.startsWith('x-ai/'))
             ) {
-                // Exclude models that might accidentally match a default prefix but are OpenRouter
                 if (!model.startsWith('openrouter:')) {
-                     providerGroup.models.push(model);
-                     found = true;
-                     break;
+                    providerGroup.models.push(model);
+                    found = true;
+                    break;
                 }
             }
         }
-        // If not found in default providers AND doesn't have openrouter: prefix, try assigning to OpenRouter anyway
-        // This is a fallback, ideally context provides the correct prefix.
         if (!found && !model.startsWith('openrouter:')) {
             const openRouterProvider = grouped.find(p => p.provider === "OpenRouter");
             if (openRouterProvider) {
-                // Add the prefix for consistency internally? Or leave as is?
-                // Adding prefix might be safer for differentiation.
                 openRouterProvider.models.push(`openrouter:${model}`);
                 console.warn(`Model "${model}" added to OpenRouter group without prefix.`);
             } else {
                 console.warn(`Model "${model}" doesn't match known providers and OpenRouter group not found.`);
             }
         } else if (!found && model.startsWith('openrouter:')) {
-             // Should have been found, but handle case where OpenRouter group might be missing initially
-             const openRouterProvider = grouped.find(p => p.provider === "OpenRouter");
-             if (openRouterProvider) {
+            const openRouterProvider = grouped.find(p => p.provider === "OpenRouter");
+            if (openRouterProvider) {
                 openRouterProvider.models.push(model);
-             } else {
-                 console.warn(`Model "${model}" has OpenRouter prefix but group not found.`);
-             }
+            } else {
+                console.warn(`Model "${model}" has OpenRouter prefix but group not found.`);
+            }
         }
     });
 
-    // Filter out providers with no enabled models and sort models within each provider
     return grouped
         .filter(group => group.models.length > 0)
         .map(group => ({ ...group, models: group.models.sort() }));
 };
 
-
 interface AppHeaderProps {
-  currentPageName?: string; // Optional prop for current page name override
-  showSignIn?: boolean; // Add prop to control sign-in visibility
+  currentPageName?: string;
+  showSignIn?: boolean;
 }
 
-export function AppHeader({ currentPageName, showSignIn = true }: AppHeaderProps) { // Default showSignIn to true
+export function AppHeader({ currentPageName, showSignIn = true }: AppHeaderProps) {
   const router = useRouter();
   const pathname = usePathname();
-  const isMobile = useIsMobile(); // Check if mobile
-  // Use context for selected model and the list of enabled models
+  const isImageGenPage = pathname === '/image-gen';
+  const isMobile = useIsMobile();
   const { selectedModel, setSelectedModel, enabledModels } = useAppState();
+  const [tempApiKey, setTempApiKey] = useState('');
+  const [isValidatingKey, setIsValidatingKey] = useState(false);
+  const [isKeyValid, setIsKeyValid] = useState<boolean | null>(null);
+  const [showApiKey, setShowApiKey] = useState(false);
+
+  const testApiKey = async () => {
+    setIsValidatingKey(true);
+    setIsKeyValid(null);
+    try {
+      const geminiApiKey = tempApiKey;
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${geminiApiKey}`);
+      const isValid = response.ok;
+      setIsKeyValid(isValid);
+      if (isValid) {
+        toast({
+          title: 'API Key Valid',
+          description: 'Your Gemini API key is valid.',
+        });
+      } else {
+        toast({
+          title: 'Invalid API Key',
+          description: 'Please check your API key and try again.',
+          variant: 'destructive'
+        });
+      }
+    } catch (error) {
+      setIsKeyValid(false);
+      toast({
+        title: 'Validation Error',
+        description: 'Failed to validate API key. Please try again.',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsValidatingKey(false);
+    }
+  };
+
+  const saveApiKey = () => {
+    if (!tempApiKey) {
+      toast({
+        title: 'Cannot Save',
+        description: 'Please enter an API key.',
+        variant: 'destructive'
+      });
+      return;
+    }
+    
+    localStorage.setItem('geminiApiKey', tempApiKey);
+    toast({
+      title: 'API Key Saved',
+      description: 'Your API key has been saved successfully.'
+    });
+  };
+
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [activePage, setActivePage] = useState<NavItem | null>(null);
-  const [isSignedIn, setIsSignedIn] = useState<boolean | undefined>(undefined); // Start as undefined
+  const [isSignedIn, setIsSignedIn] = useState<boolean | undefined>(undefined);
   const [username, setUsername] = useState<string | null>(null);
   const [puterLoaded, setPuterLoaded] = useState<boolean>(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isPageSwitcherOpen, setIsPageSwitcherOpen] = useState(false);
 
-  // Group the enabled models from context for the dropdown
   const groupedEnabledModels = groupModelsByProvider(enabledModels);
 
   const checkAuthStatus = useCallback(async (retryCount = 0) => {
-    // Ensure running on client
     if (typeof window === 'undefined') return;
 
     if (window.puter?.auth) {
       if (!puterLoaded) {
           console.log("Puter object loaded.");
-          setPuterLoaded(true); // Mark as loaded
+          setPuterLoaded(true);
       }
       try {
         console.log("Checking Puter auth status...");
         const signedIn = await window.puter.auth.isSignedIn();
-        setIsSignedIn(signedIn); // Update state
+        setIsSignedIn(signedIn);
         if (signedIn) {
           const user: PuterUser = await window.puter.auth.getUser();
           setUsername(user.username);
@@ -185,38 +225,42 @@ export function AppHeader({ currentPageName, showSignIn = true }: AppHeaderProps
         }
       } catch (error) {
         console.error("Error checking Puter auth status:", error);
-        setIsSignedIn(false); // Assume not signed in on error
+        setIsSignedIn(false);
         setUsername(null);
       }
     } else {
-      // Optionally retry if Puter hasn't loaded yet, with a limit
       if (retryCount < 5) {
-        const retryDelay = 300 * Math.pow(2, retryCount); // Exponential backoff
+        const retryDelay = 300 * Math.pow(2, retryCount);
         console.log(`Puter not loaded yet, retrying auth check in ${retryDelay}ms... (Attempt ${retryCount + 1})`);
         setTimeout(() => checkAuthStatus(retryCount + 1), retryDelay);
       } else {
         console.error("Puter object or puter.auth not found after multiple retries.");
-        setPuterLoaded(false); // Mark as not loaded if it fails repeatedly
-        setIsSignedIn(false); // Assume not signed in if Puter never loads
+        setPuterLoaded(false);
+        setIsSignedIn(false);
       }
     }
-  }, [puterLoaded]); // Re-run if puterLoaded changes
+  }, [puterLoaded]);
 
-  // Initial auth check on component mount with a small delay
   useEffect(() => {
     const timer = setTimeout(() => {
       checkAuthStatus();
-    }, 200); // Add a small delay (e.g., 200ms) before the first check
-    return () => clearTimeout(timer); // Cleanup timer on unmount
-  }, [checkAuthStatus]); // Depend on the useCallback function
-
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [checkAuthStatus]);
 
   useEffect(() => {
     const currentPathItem = navItems.find(item => pathname.startsWith(item.href));
     setActivePage(currentPathItem || null);
   }, [pathname]);
 
- const handleSignIn = async () => {
+  useEffect(() => {
+    if (isDialogOpen) {
+      const savedKey = localStorage.getItem('geminiApiKey') || '';
+      setTempApiKey(savedKey);
+    }
+  }, [isDialogOpen]);
+
+  const handleSignIn = async () => {
     if (typeof window === 'undefined' || !window.puter) {
       toast({ variant: "destructive", title: "Error", description: "Authentication service not ready. Please wait a moment and try again." });
       console.error("Puter library not loaded or window not available.");
@@ -225,7 +269,6 @@ export function AppHeader({ currentPageName, showSignIn = true }: AppHeaderProps
 
     console.log("Attempting sign in...");
 
-    // Prefer puter.auth.signIn() for popup flow which is generally better for UX
     const authMethod = window.puter.auth?.signIn;
     const authMethodName = 'puter.auth.signIn';
 
@@ -237,29 +280,23 @@ export function AppHeader({ currentPageName, showSignIn = true }: AppHeaderProps
 
     try {
         console.log(`Trying ${authMethodName}()...`);
-        // Call the authentication method - it returns a promise that resolves on successful sign-in.
         await authMethod();
         console.log(`${authMethodName} finished successfully.`);
 
-        // Wait slightly AFTER the promise resolves to allow Puter's internal state to settle
         await new Promise(resolve => setTimeout(resolve, 300));
 
         console.log("Re-checking auth status after successful authentication attempt.");
-        await checkAuthStatus(); // Check status again after the attempt
+        await checkAuthStatus();
 
     } catch (error: any) {
-         // This catch block might be less likely to trigger with signIn()
-         // but good practice to keep it.
         console.error("Sign in error caught or process interrupted:", error);
         toast({ variant: "destructive", title: "Sign In Issue", description: `An issue occurred during sign in: ${error.message || 'Process interrupted or unknown error'}. Please try again.` });
 
-        // Re-check status even on error/interruption after a small delay
         await new Promise(resolve => setTimeout(resolve, 300));
         console.log("Re-checking auth status after sign-in attempt resulted in error or interruption.");
         await checkAuthStatus();
     }
   };
-
 
   const handleSignOut = async () => {
     if (!puterLoaded || typeof window === 'undefined' || !window.puter?.auth?.signOut) {
@@ -268,53 +305,97 @@ export function AppHeader({ currentPageName, showSignIn = true }: AppHeaderProps
       return;
     }
     try {
-      console.log("Attempting sign out..."); // Add log
+      console.log("Attempting sign out...");
       await window.puter.auth.signOut();
       setIsSignedIn(false);
       setUsername(null);
       toast({ title: "Signed Out", description: "Successfully signed out." });
-      console.log("Sign out successful."); // Add log
+      console.log("Sign out successful.");
     } catch (error) {
       console.error("Puter sign out error:", error);
       toast({ variant: "destructive", title: "Sign Out Failed", description: "An error occurred during sign out." });
     }
   };
 
-
   const handleNavigation = (href: string) => {
     router.push(href);
-    setIsPageSwitcherOpen(false); // Close dialog on navigation
+    setIsPageSwitcherOpen(false);
   };
 
-  // Determine the title to display (or dropdown for Chat page)
   const pageTitle = currentPageName || activePage?.name || "JR Comhrá AI";
   const isChatPage = pathname.startsWith('/chat');
 
-  // Function to get display name (short version without provider prefix)
   const getModelDisplayName = (modelName: string): string => {
-     // Remove potential 'openrouter:' prefix for display
-     const nameWithoutPrefix = modelName.startsWith('openrouter:')
-        ? modelName.substring('openrouter:'.length)
-        : modelName;
-     // Then take the part after the last '/'
-     return nameWithoutPrefix.split('/').pop() || nameWithoutPrefix;
+    const nameWithoutPrefix = modelName.startsWith('openrouter:')
+      ? modelName.substring('openrouter:'.length)
+      : modelName;
+    return nameWithoutPrefix.split('/').pop() || nameWithoutPrefix;
   }
-
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-14 items-center justify-between max-w-screen-2xl px-4 md:px-6">
-
-        {/* Left side: Authentication (Conditional Rendering) */}
-        <div className="flex items-center space-x-2 min-w-[150px]"> {/* Added min-width */}
-          {showSignIn && ( // Only render if showSignIn is true
+        <div className="flex items-center space-x-2 min-w-[200px]">
+          {!showSignIn && <div className="min-w-[150px] h-10"></div>}
+          {(
+            <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm">
+                  Gemini API Key
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Set Gemini API Key</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <div className="space-y-4">
+                    <div className="relative">
+                      <Input
+                        placeholder="Enter your Gemini API key"
+                        value={tempApiKey}
+                        onChange={(e) => setTempApiKey(e.target.value)}
+                        type={showApiKey ? "text" : "password"}
+                        className="pr-10"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                        onClick={() => setShowApiKey(!showApiKey)}
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    <div className="flex space-x-2">
+                      <Button
+                        onClick={saveApiKey}
+                        className="flex-1"
+                        disabled={!tempApiKey || isValidatingKey}
+                      >
+                        Save Key
+                      </Button>
+                      <Button
+                        onClick={testApiKey}
+                        className="flex-1"
+                        disabled={!tempApiKey || isValidatingKey}
+                      >
+                        Test Key
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
+          )}
+          {showSignIn && (
             <>
-              {isSignedIn === undefined ? ( // Show loading state until status is known
+              {isSignedIn === undefined ? (
                 <Button variant="outline" size="sm" disabled>Loading Auth...</Button>
               ) : isSignedIn ? (
                 <div className="flex items-center space-x-2">
                   <div className="flex flex-col items-start text-xs">
-                    {/* Add border to username */}
                     <span className="font-medium text-foreground border border-border rounded-md px-2 py-1">{username || 'User'}</span>
                     <Button variant="ghost" size="sm" onClick={handleSignOut} className="h-auto p-0 text-muted-foreground hover:text-destructive mt-1">
                       <LogOut className="mr-1 h-3 w-3" /> Sign Out
@@ -328,11 +409,10 @@ export function AppHeader({ currentPageName, showSignIn = true }: AppHeaderProps
               )}
             </>
           )}
-          {!showSignIn && <div className="min-w-[150px] h-10"></div>} {/* Add placeholder if sign-in is hidden */}
+          {!showSignIn && <div className="min-w-[150px] h-10"></div>}
         </div>
 
-        {/* Center: App Title or Model Selector */}
-        <div className="flex items-center justify-center flex-grow"> {/* Added flex-grow and justify-center */}
+        <div className="flex items-center justify-center flex-grow">
           {isChatPage ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -342,54 +422,49 @@ export function AppHeader({ currentPageName, showSignIn = true }: AppHeaderProps
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent className="w-64 max-h-96 overflow-y-auto">
-                 <DropdownMenuRadioGroup value={selectedModel} onValueChange={setSelectedModel}>
-                    {/* Map over the grouped ENABLED models */}
-                    {groupedEnabledModels.map(providerGroup => (
-                        <DropdownMenuGroup key={providerGroup.provider}>
-                            <DropdownMenuLabel>{providerGroup.provider}</DropdownMenuLabel>
-                            {providerGroup.models.map(model => (
-                                <DropdownMenuRadioItem key={model} value={model}>
-                                {getModelDisplayName(model)}
-                                </DropdownMenuRadioItem>
-                            ))}
-                        </DropdownMenuGroup>
-                    ))}
-                     {/* Show message if no models are enabled */}
-                    {enabledModels.length === 0 && (
-                         <DropdownMenuLabel className="text-muted-foreground text-xs italic text-center py-2">
-                            No models enabled in settings.
-                        </DropdownMenuLabel>
-                    )}
+                <DropdownMenuRadioGroup value={selectedModel} onValueChange={setSelectedModel}>
+                  {groupedEnabledModels.map(providerGroup => (
+                    <DropdownMenuGroup key={providerGroup.provider}>
+                      <DropdownMenuLabel>{providerGroup.provider}</DropdownMenuLabel>
+                      {providerGroup.models.map(model => (
+                        <DropdownMenuRadioItem key={model} value={model}>
+                          {getModelDisplayName(model)}
+                        </DropdownMenuRadioItem>
+                      ))}
+                    </DropdownMenuGroup>
+                  ))}
+                  {enabledModels.length === 0 && (
+                    <DropdownMenuLabel className="text-muted-foreground text-xs italic text-center py-2">
+                      No models enabled in settings.
+                    </DropdownMenuLabel>
+                  )}
                 </DropdownMenuRadioGroup>
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
             <Link href="/" className="flex items-center">
-                <h1 className="text-lg font-semibold text-primary hover:text-accent transition-colors">
-                    {pageTitle}
-                </h1>
+              <h1 className="text-lg font-semibold text-primary hover:text-accent transition-colors">
+                {pageTitle}
+              </h1>
             </Link>
           )}
         </div>
 
-
-        {/* Right side: Page Switcher & Settings */}
-        <div className="flex items-center space-x-2 min-w-[150px] justify-end"> {/* Added min-width and justify-end */}
+        <div className="flex items-center space-x-2 min-w-[150px] justify-end">
           <TooltipProvider delayDuration={100}>
-            {/* Page Switcher Dialog */}
             <Dialog open={isPageSwitcherOpen} onOpenChange={setIsPageSwitcherOpen}>
               <Tooltip>
-                  <TooltipTrigger asChild>
-                     <DialogTrigger asChild>
-                       <Button variant="ghost" size="icon">
-                         <LayoutGrid className="h-5 w-5" />
-                         <span className="sr-only">Switch Page</span>
-                       </Button>
-                     </DialogTrigger>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                     <p>Switch Page</p>
-                  </TooltipContent>
+                <TooltipTrigger asChild>
+                  <DialogTrigger asChild>
+                    <Button variant="ghost" size="icon">
+                      <LayoutGrid className="h-5 w-5" />
+                      <span className="sr-only">Switch Page</span>
+                    </Button>
+                  </DialogTrigger>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Switch Page</p>
+                </TooltipContent>
               </Tooltip>
               <DialogContent className="sm:max-w-[425px]">
                 <DialogHeader>
@@ -408,120 +483,111 @@ export function AppHeader({ currentPageName, showSignIn = true }: AppHeaderProps
                     </Button>
                   ))}
                   <Button
-                      variant={pathname === '/' ? 'secondary' : 'ghost'}
-                      onClick={() => handleNavigation('/')}
-                      className="justify-start"
+                    variant={pathname === '/' ? 'secondary' : 'ghost'}
+                    onClick={() => handleNavigation('/')}
+                    className="justify-start"
                   >
-                      <Home className="mr-2 h-4 w-4" />
-                      <span>Landing Page</span>
+                    <Home className="mr-2 h-4 w-4" />
+                    <span>Landing Page</span>
                   </Button>
                 </div>
               </DialogContent>
             </Dialog>
 
-            {/* Settings Dialog */}
             <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <DialogTrigger asChild>
-                      <Button variant="ghost" size="icon">
-                        <Settings className="h-5 w-5" />
-                        <span className="sr-only">Settings</span>
-                      </Button>
-                    </DialogTrigger>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>Settings</p>
-                  </TooltipContent>
-                </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DialogTrigger asChild>
+                    <Button variant="ghost" size="icon">
+                      <Settings className="h-5 w-5" />
+                      <span className="sr-only">Settings</span>
+                    </Button>
+                  </DialogTrigger>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Settings</p>
+                </TooltipContent>
+              </Tooltip>
               <DialogContent className="sm:max-w-[600px] max-h-[80vh] flex flex-col">
                 <DialogHeader>
                   <DialogTitle>Settings</DialogTitle>
                 </DialogHeader>
-                <div className="flex-grow overflow-y-auto pr-2"> {/* Added overflow and padding */}
-                    <Tabs defaultValue="general" className="w-full">
+                <div className="flex-grow overflow-y-auto pr-2">
+                  <Tabs defaultValue="general" className="w-full">
                     <TabsList className="grid w-full grid-cols-3 sm:grid-cols-6 mb-4">
-                        <TabsTrigger value="general">General</TabsTrigger>
-                        <TabsTrigger value="models">Models</TabsTrigger>
-                        <TabsTrigger value="advanced">Advanced</TabsTrigger>
-                        <TabsTrigger value="camera-audio">Media</TabsTrigger>
-                        <TabsTrigger value="misc">Misc</TabsTrigger>
-                        <TabsTrigger value="help">Help</TabsTrigger>
+                      <TabsTrigger value="general">General</TabsTrigger>
+                      <TabsTrigger value="models">Models</TabsTrigger>
+                      <TabsTrigger value="advanced">Advanced</TabsTrigger>
+                      <TabsTrigger value="camera-audio">Media</TabsTrigger>
+                      <TabsTrigger value="misc">Misc</TabsTrigger>
+                      <TabsTrigger value="help">Help</TabsTrigger>
                     </TabsList>
                     <TabsContent value="general">
-                        <Card>
+                      <Card>
                         <CardHeader>
-                            <CardTitle>General Settings</CardTitle>
-                            <CardDescription>Basic application preferences.</CardDescription>
+                          <CardTitle>General Settings</CardTitle>
+                          <CardDescription>Basic application preferences.</CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-4">
-                            <p>Theme, language, etc.</p>
-                            {/* Add general settings components here */}
+                          <p>Theme, language, etc.</p>
                         </CardContent>
-                        </Card>
+                      </Card>
                     </TabsContent>
                     <TabsContent value="models">
-                        <Card>
+                      <Card>
                         <CardHeader>
-                            {/* Removed Title/Description from here */}
                         </CardHeader>
                         <CardContent className="space-y-4 pt-6 scrollbar-hide">
-                            {/* Model selection UI moved to Footer */}
-                            <p className="text-sm text-muted-foreground">Model selection is available in the chat settings (cog icon) in the footer.</p>
+                          <p className="text-sm text-muted-foreground">Model selection is available in the chat settings (cog icon) in the footer.</p>
                         </CardContent>
-                        </Card>
+                      </Card>
                     </TabsContent>
-                     <TabsContent value="advanced">
-                        <Card>
+                    <TabsContent value="advanced">
+                      <Card>
                         <CardHeader>
-                            <CardTitle>Advanced Settings</CardTitle>
-                            <CardDescription>Expert configurations.</CardDescription>
+                          <CardTitle>Advanced Settings</CardTitle>
+                          <CardDescription>Expert configurations.</CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-4">
-                            <p>API keys (if applicable), system prompts, etc.</p>
-                            {/* Add advanced settings components here */}
+                          <p>API keys (if applicable), system prompts, etc.</p>
                         </CardContent>
-                        </Card>
+                      </Card>
                     </TabsContent>
                     <TabsContent value="camera-audio">
-                         <Card>
+                      <Card>
                         <CardHeader>
-                            <CardTitle>Camera & Audio Settings</CardTitle>
-                            <CardDescription>Manage media input devices.</CardDescription>
+                          <CardTitle>Camera & Audio Settings</CardTitle>
+                          <CardDescription>Manage media input devices.</CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-4">
-                            <p>Select camera, microphone, output device.</p>
-                            {/* Add camera/audio settings components here */}
+                          <p>Select camera, microphone, output device.</p>
                         </CardContent>
-                        </Card>
+                      </Card>
                     </TabsContent>
-                     <TabsContent value="misc">
-                         <Card>
+                    <TabsContent value="misc">
+                      <Card>
                         <CardHeader>
-                            <CardTitle>Miscellaneous Settings</CardTitle>
-                            <CardDescription>Other configurations.</CardDescription>
+                          <CardTitle>Miscellaneous Settings</CardTitle>
+                          <CardDescription>Other configurations.</CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-4">
-                            <p>Export/Import settings, reset options.</p>
-                            {/* Add misc settings components here */}
+                          <p>Export/Import settings, reset options.</p>
                         </CardContent>
-                        </Card>
+                      </Card>
                     </TabsContent>
                     <TabsContent value="help">
-                         <Card>
+                      <Card>
                         <CardHeader>
-                            <CardTitle>Help & About</CardTitle>
-                            <CardDescription>Information and support.</CardDescription>
+                          <CardTitle>Help & About</CardTitle>
+                          <CardDescription>Information and support.</CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-4">
-                            <p>Version info, documentation links, contact.</p>
-                            {/* Add help content here */}
+                          <p>Version info, documentation links, contact.</p>
                         </CardContent>
-                        </Card>
+                      </Card>
                     </TabsContent>
-                    </Tabs>
+                  </Tabs>
                 </div>
-                 {/* Removed DialogFooter for consistency, close button is in top right */}
               </DialogContent>
             </Dialog>
           </TooltipProvider>
