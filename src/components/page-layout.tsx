@@ -6,7 +6,7 @@ import { Footer } from './footer'; // Import the new Footer component
 interface PageLayoutProps {
   children: React.ReactNode;
   currentPageName?: string;
-  onSendMessage?: (message: string) => void; // Add optional onSendMessage prop
+  onSendMessage?: (message: string, file?: File) => void; // Update to accept optional File
   onNewChat?: () => void; // Add optional onNewChat prop
   onRestoreChat?: (sessionId: string) => void; // Add optional onRestoreChat prop
 }
@@ -31,3 +31,5 @@ export function PageLayout({ children, currentPageName, onSendMessage, onNewChat
     </div>
   );
 }
+
+    

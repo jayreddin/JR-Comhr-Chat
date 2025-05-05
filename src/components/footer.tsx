@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import Image from 'next/image'; // Import next/image for preview
 import {
   Popover,
   PopoverContent,
@@ -30,7 +31,7 @@ import {
     TabsTrigger,
 } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Mic, Send, Paperclip, Square, PlusCircle, History, Upload, Settings, X, Minimize2, Loader2 } from 'lucide-react'; // Added Loader2
+import { Mic, Send, Paperclip, Square, PlusCircle, History, Upload, Settings, X, Minimize2, Loader2, File as FileIcon } from 'lucide-react'; // Added Loader2, FileIcon
 import { toast } from "@/hooks/use-toast"; // Import toast for notifications
 import { cn } from '@/lib/utils'; // Import cn for conditional classes
 import { useAppState } from '@/context/app-state-context'; // Import context hook
@@ -124,7 +125,7 @@ const modelProviders = [
 const openRouterProvidersStructure = [{ provider: "OpenRouter", models: [] as string[] }];
 
 interface FooterProps {
-  onSendMessage?: (message: string) => void; // Make prop optional
+  onSendMessage?: (message: string, file?: File) => void; // Accept optional file
   onNewChat?: () => void; // Add optional onNewChat prop
   onRestoreChat?: (sessionId: string) => void; // Add optional onRestoreChat prop
 }
@@ -135,8 +136,8 @@ export function Footer({ onSendMessage, onNewChat, onRestoreChat }: FooterProps)
     const [isRecording, setIsRecording] = useState(false);
     const [hasMicPermission, setHasMicPermission] = useState<boolean | null>(null);
     const recognitionRef = useRef<any>(null);
-    const [uploadedFile, setUploadedFile] = useState<File | null>(null);
-    const [filePreview, setFilePreview] = useState<string | null>(null);
+    const [uploadedFile, setUploadedFile] = useState<File | null>(null); // State to hold the File object
+    const [filePreview, setFilePreview] = useState<string | null>(null); // State for Data URI preview
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     // Get context values and setters
@@ -305,20 +306,12 @@ export function Footer({ onSendMessage, onNewChat, onRestoreChat }: FooterProps)
     };
 
     const handleSend = () => {
+        // Pass both inputValue and the File object (if present)
         if (onSendMessage && (inputValue.trim() || uploadedFile)) {
-             // Combine text and file info if needed
-            let messageToSend = inputValue.trim();
-             if (uploadedFile) {
-                // TODO: Decide how to represent the file for the onSendMessage handler.
-                // Maybe pass an object { text: messageToSend, file: uploadedFile }
-                // For now, just prepend filename. The actual file data needs separate handling.
-                messageToSend = `[File attached: ${uploadedFile.name}]\n${messageToSend}`;
-                console.log("Sending message with attached file:", uploadedFile.name);
-             }
-            onSendMessage(messageToSend);
+            onSendMessage(inputValue, uploadedFile || undefined); // Pass File object
             setInputValue('');
-            setUploadedFile(null); // Clear file after sending
-            setFilePreview(null);
+            setUploadedFile(null); // Clear file object
+            setFilePreview(null); // Clear preview
             if (fileInputRef.current) {
                 fileInputRef.current.value = ""; // Reset file input visually
             }
@@ -392,11 +385,13 @@ export function Footer({ onSendMessage, onNewChat, onRestoreChat }: FooterProps)
         }
     };
 
+    // File Handling
     const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
         if (file) {
-            setUploadedFile(file);
-            // Generate preview (simple text or image preview)
+            setUploadedFile(file); // Store the File object
+
+            // Generate preview (Data URI)
             if (file.type.startsWith('image/')) {
                 const reader = new FileReader();
                 reader.onloadend = () => {
@@ -404,9 +399,13 @@ export function Footer({ onSendMessage, onNewChat, onRestoreChat }: FooterProps)
                 };
                 reader.readAsDataURL(file);
             } else {
-                // For non-images, maybe just show filename or generic icon
-                setFilePreview(`📄 ${file.name} (${Math.round(file.size / 1024)} KB)`);
+                // For non-images, show filename
+                setFilePreview(null); // Clear image preview if not an image
             }
+             // Automatically close the dialog after selecting a file
+             // Consider adding a small delay if needed
+             setIsFileUploadOpen(false);
+             toast({ title: "File Ready", description: `${file.name} attached. Type your message and send.` });
         }
     };
 
@@ -418,15 +417,8 @@ export function Footer({ onSendMessage, onNewChat, onRestoreChat }: FooterProps)
         }
      };
 
-    const handleAddFileToChat = () => {
-        if (uploadedFile) {
-            // Logic to represent the file in the input or context
-            // The file state is already set, file preview shows above input.
-            // Just close the dialog.
-            setIsFileUploadOpen(false);
-            toast({ title: "File Ready", description: `${uploadedFile.name} is ready to be sent with your message.` });
-        }
-    };
+    // This button is removed, dialog closes automatically
+    // const handleAddFileToChat = () => { ... };
 
 
     const handleSaveSettings = () => {
@@ -441,6 +433,8 @@ export function Footer({ onSendMessage, onNewChat, onRestoreChat }: FooterProps)
                 activeModels: activeDefaultModels, // Use context state
                 openRouterActive,               // Use context state
                 activeOpenRouterModels,         // Use context state
+                // Keep existing selectedModel if present
+                selectedModel: localStorage.getItem('chatSettings') ? JSON.parse(localStorage.getItem('chatSettings')!).selectedModel : undefined,
             }));
             setIsChatSettingsOpen(false); // Close dialog
             toast({ title: "Settings Saved", description: "Chat settings have been saved." });
@@ -617,22 +611,45 @@ export function Footer({ onSendMessage, onNewChat, onRestoreChat }: FooterProps)
                                     <DialogTitle>Upload File</DialogTitle>
                                 </DialogHeader>
                                 <div className="space-y-4 py-4">
-                                     {filePreview && (
+                                     {/* File Input (Clickable area) */}
+                                     <div
+                                        className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-border rounded-md cursor-pointer hover:bg-accent/50"
+                                        onClick={() => fileInputRef.current?.click()}
+                                    >
+                                        <Upload className="w-10 h-10 text-muted-foreground mb-2" />
+                                        <p className="text-sm text-muted-foreground">Click or drag file to upload</p>
+                                        <Input
+                                            type="file"
+                                            ref={fileInputRef}
+                                            onChange={handleFileChange}
+                                            className="hidden" // Hide the default input
+                                            // Optionally specify accepted file types
+                                            // accept="image/*, application/pdf, .txt, .md"
+                                        />
+                                    </div>
+
+                                     {/* File Preview Area (inside dialog) */}
+                                     {uploadedFile && (
                                         <div className="relative group rounded border p-2 max-h-60 overflow-auto">
                                              <Button variant="ghost" size="icon" onClick={handleRemoveFile} className="absolute top-1 right-1 h-5 w-5 opacity-50 group-hover:opacity-100 z-10" aria-label="Remove file">
                                                 <X className="h-3 w-3"/>
                                              </Button>
-                                            {uploadedFile?.type.startsWith('image/') ? (
+                                            {filePreview ? ( // Show image preview if available
                                                 <img src={filePreview} alt="File preview" className="max-w-full max-h-56 object-contain mx-auto rounded" />
-                                            ) : (
-                                                <p className="text-sm text-muted-foreground p-4 break-words">{filePreview}</p> // Added break-words
+                                            ) : ( // Show generic info for non-images
+                                                <div className="flex items-center space-x-2 p-4">
+                                                    <FileIcon className="h-6 w-6 text-muted-foreground"/>
+                                                    <p className="text-sm text-muted-foreground break-words">
+                                                        {uploadedFile.name} ({Math.round(uploadedFile.size / 1024)} KB)
+                                                    </p>
+                                                </div>
                                             )}
                                         </div>
                                     )}
-                                    <Input type="file" ref={fileInputRef} onChange={handleFileChange} className="mt-2" />
-                                    <DialogFooter> {/* Move button to footer for better placement */}
+                                    {/* Button removed - dialog closes on file selection */}
+                                    {/* <DialogFooter>
                                          <Button onClick={handleAddFileToChat} disabled={!uploadedFile}>Add File to Chat</Button>
-                                    </DialogFooter>
+                                    </DialogFooter> */}
                                 </div>
                             </DialogContent>
                         </Dialog>
@@ -718,10 +735,16 @@ export function Footer({ onSendMessage, onNewChat, onRestoreChat }: FooterProps)
                                                             allEnabledModels={enabledModels} // Use derived list from context
                                                             onToggle={(model) => {
                                                                  // Determine which list the model belongs to and toggle it using context setters
-                                                                 if (modelProviders.some(p => p.models.includes(model))) {
+                                                                 // Check default models first
+                                                                 const isDefault = modelProviders.some(p => p.models.includes(model));
+                                                                 if (isDefault) {
                                                                      handleModelToggle(model, 'default');
-                                                                 } else if (availableOpenRouterModels.includes(model)) { // Should have prefix
+                                                                 }
+                                                                 // Check if it's an available OpenRouter model (should have prefix)
+                                                                 else if (availableOpenRouterModels.includes(model)) {
                                                                      handleModelToggle(model, 'openrouter');
+                                                                 } else {
+                                                                      console.warn(`Toggled model "${model}" not found in default or available OpenRouter lists.`);
                                                                  }
                                                              }}
                                                         />
@@ -811,15 +834,18 @@ export function Footer({ onSendMessage, onNewChat, onRestoreChat }: FooterProps)
                         </Button>
                          <div className="flex-grow relative">
                             {/* File Thumbnail - Positioned above the input */}
-                             {uploadedFile && filePreview && (
+                             {uploadedFile && (
                                 <div className="absolute bottom-full left-0 mb-1 p-1 bg-secondary border rounded-md shadow max-w-[150px] group z-10"> {/* Added z-index */}
                                      <Button variant="ghost" size="icon" onClick={handleRemoveFile} className="absolute top-0 right-0 h-4 w-4 opacity-50 group-hover:opacity-100 z-20" aria-label="Remove file">
                                         <X className="h-3 w-3"/>
                                      </Button>
-                                    {uploadedFile.type.startsWith('image/') ? (
+                                    {filePreview ? ( // If image preview exists
                                         <img src={filePreview} alt="Preview" className="max-h-16 max-w-full object-contain rounded" />
-                                    ) : (
-                                        <span className="text-xs px-1 line-clamp-2 break-all">📄 {uploadedFile.name}</span> /* Added break-all */
+                                    ) : ( // Otherwise show generic file info
+                                         <div className="flex items-center space-x-1 p-1">
+                                            <FileIcon className="h-4 w-4 text-muted-foreground"/>
+                                            <span className="text-xs px-1 line-clamp-2 break-all">{uploadedFile.name}</span>
+                                         </div>
                                     )}
                                 </div>
                              )}
@@ -897,6 +923,7 @@ function ModelSelectionBox({ title, providers, activeModels, onToggle, onSelectA
 
     // Get the total number of models across all providers in this box
     const totalModelsInBox = providers.reduce((acc, provider) => acc + provider.models.length, 0);
+    // Check if all models *from these specific providers* are selected
     const allModelsSelected = totalModelsInBox > 0 && providers.every(p => p.models.every(m => activeModels.includes(m)));
     // Check if no models *from these specific providers* are selected
     const noModelsSelected = providers.every(p => p.models.every(m => !activeModels.includes(m)));
@@ -1056,3 +1083,5 @@ function EnabledModelsBox({ allEnabledModels, onToggle }: EnabledModelsBoxProps)
         </Card>
     );
 }
+
+    
