@@ -208,18 +208,22 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
         if (window.puter.ui && window.puter.ui.authenticateWithPuter) {
              console.log("Trying puter.ui.authenticateWithPuter()..."); // Add log
              try {
-                await window.puter.ui.authenticateWithPuter();
-                console.log("authenticateWithPuter completed (or cancelled)."); // Add log
-                // No explicit error means it either succeeded or was cancelled by user.
-                // Re-check status regardless to update UI state.
-                await checkAuthStatus();
-                return; // Exit after attempting this method
+                // Authenticate - this might resolve immediately or after user interaction
+                 await window.puter.ui.authenticateWithPuter();
+                 console.log("authenticateWithPuter completed (or cancelled)."); // Add log
+                 // Wait a short moment for the auth state to potentially update internally
+                 await new Promise(resolve => setTimeout(resolve, 100));
+                 // Re-check status regardless to update UI state accurately.
+                 await checkAuthStatus();
+                 return; // Exit after attempting this method
              } catch(authUiError) {
                 console.warn("puter.ui.authenticateWithPuter() failed or was cancelled:", authUiError); // Add log
-                // Check if it was *not* a user cancellation before falling back
+                 // Check if it was *not* a user cancellation before falling back
                  if (authUiError instanceof Error && authUiError.message.toLowerCase().includes("cancel")) {
                      console.log("User cancelled authenticateWithPuter dialog."); // Add log
                      // Don't fall back if user explicitly cancelled
+                     // Wait a short moment before checking status
+                     await new Promise(resolve => setTimeout(resolve, 100));
                      await checkAuthStatus(); // Still check status in case something changed unexpectedly
                      return;
                  } else {
@@ -236,7 +240,9 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
         if (window.puter.auth && window.puter.auth.signIn) {
             await window.puter.auth.signIn();
             console.log("puter.auth.signIn() completed (or cancelled)."); // Add log
-            // signIn resolves even on cancellation, so always check status after.
+             // signIn resolves even on cancellation, so always check status after.
+            // Wait a short moment for auth state update
+            await new Promise(resolve => setTimeout(resolve, 100));
             await checkAuthStatus();
         } else {
             console.error("Puter auth.signIn method not found!"); // Add log
@@ -252,7 +258,8 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
       } else if (!(error instanceof Error)) {
           toast({ variant: "destructive", title: "Sign In Failed", description: "An unexpected error occurred during sign in." });
       }
-      // Ensure status is checked even on error
+      // Ensure status is checked even on error after a short delay
+      await new Promise(resolve => setTimeout(resolve, 100));
       await checkAuthStatus();
     }
   };
@@ -302,8 +309,8 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
           ) : isSignedIn ? (
             <div className="flex items-center space-x-2">
               <div className="flex flex-col items-start text-xs">
-                <span className="font-medium text-foreground">{username || 'User'}</span>
-                <Button variant="ghost" size="sm" onClick={handleSignOut} className="h-auto p-0 text-muted-foreground hover:text-destructive">
+                <span className="font-medium text-foreground border border-border rounded-md px-2 py-1">{username || 'User'}</span>
+                <Button variant="ghost" size="sm" onClick={handleSignOut} className="h-auto p-0 text-muted-foreground hover:text-destructive mt-1">
                   <LogOut className="mr-1 h-3 w-3" /> Sign Out
                 </Button>
               </div>
