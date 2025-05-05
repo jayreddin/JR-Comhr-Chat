@@ -5,9 +5,9 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { PageLayout } from '@/components/page-layout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Upload, Camera, Monitor, Mic as MicIcon, AlertCircle, KeyRound } from 'lucide-react';
+import { Upload, Camera, Monitor, Mic as MicIcon, AlertCircle, KeyRound, File as FileIcon, Copy, Maximize2 } from 'lucide-react'; // Import icons
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Label } from '@/components/ui/label'; // Import Label
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { format } from 'date-fns';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -20,7 +20,8 @@ import {
     DialogTitle,
     DialogDescription,
     DialogFooter,
-} from "@/components/ui/dialog";
+    DialogClose,
+} from "@/components/ui/dialog"; // Import Dialog components
 import { cn } from '@/lib/utils';
 
 // Interface for message structure
@@ -32,8 +33,8 @@ interface Message {
   imageUrl?: string; // Optional image URL for user messages
 }
 
-// Define the model name constant - Use the corrected model name
-const GEMINI_MODEL_NAME = "gemini-1.5-flash-latest";
+// Define the model name constant - Use the correct Gemini Live model
+const GEMINI_MODEL_NAME = "models/gemini-2.0-flash-live-001";
 
 export default function VisionPage() {
     const [apiKey, setApiKey] = useState<string | null>(null);
@@ -133,7 +134,7 @@ export default function VisionPage() {
         scrollToBottom(); // Scroll after adding user message
 
         // Use v1beta endpoint as v1 doesn't support 'generateContent' directly via REST for all models/features
-        const geminiApiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_NAME}:generateContent?key=${apiKey}`;
+        const geminiApiEndpoint = `https://generativelanguage.googleapis.com/v1beta/${GEMINI_MODEL_NAME}:generateContent?key=${apiKey}`;
 
         const parts = [];
         if (trimmedInput) {
@@ -175,7 +176,7 @@ export default function VisionPage() {
                      rawErrorText = await response.text(); // Get raw error text first
                      console.log("Raw Gemini Error Text:", rawErrorText); // Log raw response
                      errorData = JSON.parse(rawErrorText); // Try parsing JSON
-                     console.error("Gemini API Error Response (JSON Parsed):", errorData);
+                     console.error("Gemini API Error Response:", errorData); // Log detailed error
                      if (errorData?.error?.message) {
                          detailedMessage += ` - ${errorData.error.message}`;
                      } else if (rawErrorText) {
@@ -183,15 +184,10 @@ export default function VisionPage() {
                      }
                  } catch (parseError) {
                      console.error("Could not parse error response as JSON:", parseError);
-                     if (rawErrorText) {
-                          detailedMessage += ` - ${rawErrorText}`; // Use raw text if JSON parsing fails
-                     } else {
-                         // Attempt to get text again if first try failed somehow
-                         try {
-                            rawErrorText = await response.text();
-                            if (rawErrorText) detailedMessage += ` - ${rawErrorText}`;
-                         } catch (e) { console.error("Could not read error text", e); }
-                     }
+                     // If response body isn't JSON or empty
+                      if (rawErrorText) {
+                         detailedMessage += ` - ${rawErrorText}`;
+                      }
                  } finally {
                     // Add specific checks for common errors based on status/text
                     if (response.status === 400 && (rawErrorText.includes("API_KEY_INVALID") || rawErrorText.includes("API key not valid"))) {
@@ -317,7 +313,16 @@ export default function VisionPage() {
                 videoRef.current.srcObject = stream;
                 // Ensure the video plays when the stream is ready
                 videoRef.current.onloadedmetadata = () => {
-                    videoRef.current?.play().catch(e => console.error("Camera video play error:", e));
+                    videoRef.current?.play().catch(e => {
+                         console.error("Camera video play error:", e);
+                         toast({ variant: 'destructive', title: 'Camera Play Error', description: 'Could not play camera video.' });
+                     });
+                };
+                // Add error handler for the video element itself
+                videoRef.current.onerror = (e) => {
+                     console.error("Video element error:", e);
+                     toast({ variant: 'destructive', title: 'Video Element Error', description: 'There was an error with the video player.' });
+                     stopCamera(); // Stop on video element error
                 };
             }
             setIsCameraActive(true);
@@ -325,6 +330,7 @@ export default function VisionPage() {
         } catch (error) {
             console.error('Error starting camera stream:', error);
             toast({ variant: 'destructive', title: 'Camera Error', description: 'Could not start camera.' });
+            stopCamera(); // Clean up if starting failed
         }
     };
 
@@ -337,6 +343,7 @@ export default function VisionPage() {
         if (videoRef.current) {
             videoRef.current.srcObject = null; // Clear video source
             videoRef.current.onloadedmetadata = null; // Clean up listener
+            videoRef.current.onerror = null; // Clean up error handler
         }
         setIsCameraActive(false);
         console.log("Camera stopped");
@@ -393,7 +400,16 @@ export default function VisionPage() {
                  screenVideoRef.current.srcObject = stream;
                   // Ensure the video plays when the stream is ready
                  screenVideoRef.current.onloadedmetadata = () => {
-                    screenVideoRef.current?.play().catch(e => console.error("Screen share video play error:", e));
+                    screenVideoRef.current?.play().catch(e => {
+                        console.error("Screen share video play error:", e);
+                        toast({ variant: 'destructive', title: 'Screen Share Play Error', description: 'Could not play screen share video.' });
+                    });
+                 };
+                  // Add error handler for the video element itself
+                 screenVideoRef.current.onerror = (e) => {
+                      console.error("Video element error (screen share):", e);
+                      toast({ variant: 'destructive', title: 'Video Element Error', description: 'There was an error with the screen share player.' });
+                      stopScreenShare(); // Stop on video element error
                  };
              }
              setIsScreenActive(true);
@@ -420,6 +436,7 @@ export default function VisionPage() {
         if (screenVideoRef.current) {
             screenVideoRef.current.srcObject = null;
             screenVideoRef.current.onloadedmetadata = null; // Clean up listener
+            screenVideoRef.current.onerror = null; // Clean up error handler
         }
         setIsScreenActive(false);
         console.log("Screen share stopped");
@@ -477,6 +494,7 @@ export default function VisionPage() {
          } catch (error) {
              console.error('Error starting audio input:', error);
              toast({ variant: 'destructive', title: 'Audio Error', description: 'Could not start microphone.' });
+             stopAudio(); // Clean up if starting failed
          }
      };
 
@@ -595,10 +613,10 @@ export default function VisionPage() {
                                  <video
                                      ref={videoRef}
                                      className={cn(
-                                         "w-auto h-32 aspect-video rounded-md", // Removed bg-black
+                                         "w-auto h-32 aspect-video rounded-md bg-black", // Keep bg-black as placeholder
                                          { 'hidden': hasCameraPermission === false }
                                      )}
-                                     autoPlay
+                                     autoPlay // Ensure autoplay
                                      muted
                                      playsInline // Important for mobile browsers
                                  />
@@ -618,10 +636,10 @@ export default function VisionPage() {
                                 <video
                                     ref={screenVideoRef}
                                     className={cn(
-                                        "w-auto h-32 aspect-video rounded-md", // Removed bg-black
+                                        "w-auto h-32 aspect-video rounded-md bg-black", // Keep bg-black as placeholder
                                         { 'hidden': hasScreenPermission === false }
                                     )}
-                                    autoPlay
+                                    autoPlay // Ensure autoplay
                                     muted
                                     playsInline
                                 />
@@ -730,4 +748,3 @@ export default function VisionPage() {
     );
 }
 
-    
