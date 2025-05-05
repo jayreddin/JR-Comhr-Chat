@@ -29,6 +29,22 @@ declare global {
   }
 }
 
+// Define structure for saved chat sessions
+interface SavedChatSession {
+    id: string;
+    name: string;
+    timestamp: number;
+    messages: Message[];
+}
+
+// Define structure for the list of sessions in localStorage
+interface ChatSessionInfo {
+    id: string;
+    name: string;
+    timestamp: number;
+}
+
+
 export default function ChatPage() {
   const { selectedModel } = useAppState(); // Get selected model from context
   const [messages, setMessages] = useState<Message[]>([]);
@@ -53,15 +69,31 @@ export default function ChatPage() {
     fetchUser();
   }, []);
 
+  // Load the most recent chat session on initial mount, or start empty
+  useEffect(() => {
+     if (typeof window !== 'undefined') {
+       const sessionListJSON = localStorage.getItem('chatSessionList');
+       if (sessionListJSON) {
+         try {
+           const sessionList: ChatSessionInfo[] = JSON.parse(sessionListJSON);
+           if (sessionList.length > 0) {
+             // Sort by timestamp descending to get the most recent
+             sessionList.sort((a, b) => b.timestamp - a.timestamp);
+             const mostRecentSessionId = sessionList[0].id;
+             handleRestoreChatSession(mostRecentSessionId, false); // Load without toast
+           }
+         } catch (error) {
+           console.error("Error loading chat session list:", error);
+           localStorage.removeItem('chatSessionList'); // Clear corrupted list
+         }
+       }
+     }
+   }, []); // Empty dependency array ensures this runs only on mount
+
 
    // Function to scroll to the bottom of the chat
    const scrollToBottom = () => {
      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-     // Alternative using viewport ref:
-     // const viewport = scrollAreaRef.current?.firstElementChild;
-     // if (viewport) {
-     //     viewport.scrollTop = viewport.scrollHeight;
-     // }
    };
 
    // Scroll to bottom whenever messages change
@@ -80,28 +112,31 @@ export default function ChatPage() {
     if (messageToResend.sender === 'user') {
         console.log(`Resending message: ${messageId}`);
         // Find the AI response immediately following this user message, if any
-        const nextMessage = messages[messageIndex + 1];
+        // Since messages are reversed, the AI response is *before* the user message
+        const previousMessage = messages[messageIndex - 1];
         let messagesWithoutOldResponse = [...messages];
-        if (nextMessage && nextMessage.sender === 'ai') {
-             // Simple removal - assumes AI response is directly after.
-             // Might need more robust logic if order isn't guaranteed or history exists.
-             messagesWithoutOldResponse = messages.filter((_, idx) => idx !== messageIndex + 1);
+        if (previousMessage && previousMessage.sender === 'ai') {
+             // Simple removal - assumes AI response is directly before.
+             messagesWithoutOldResponse = messages.filter((_, idx) => idx !== messageIndex - 1);
         }
         setMessages(messagesWithoutOldResponse); // Update state before sending
         handleSendMessage(messageToResend.text); // Re-trigger send logic
     } else if (messageToResend.sender === 'ai') {
         // Logic to regenerate AI response
-        // Find the preceding user message
-        const precedingUserMessage = messages[messageIndex - 1];
-        if (precedingUserMessage && precedingUserMessage.sender === 'user') {
+        // Find the succeeding user message (which is chronologically *after* the AI message,
+        // but appears *after* the AI message in the reversed array)
+        const succeedingUserMessage = messages[messageIndex + 1];
+        if (succeedingUserMessage && succeedingUserMessage.sender === 'user') {
             console.log(`Requesting regeneration for AI message: ${messageId}`);
              // Remove the AI message we are regenerating
             const messagesWithoutCurrentAi = messages.filter((_, idx) => idx !== messageIndex);
             setMessages(messagesWithoutCurrentAi);
             // Resend the user message that prompted this AI response
-            handleSendMessage(precedingUserMessage.text);
+            handleSendMessage(succeedingUserMessage.text);
         } else {
-             toast({ variant: "destructive", title: "Regenerate Failed", description: "Cannot regenerate response without the preceding user message." });
+             // If it's the very first message (AI greeting maybe?) or no user message follows
+             // This logic might need adjustment based on desired behavior for regenerating greetings etc.
+             toast({ variant: "destructive", title: "Regenerate Failed", description: "Cannot regenerate response without the corresponding user message." });
         }
     }
   };
@@ -116,6 +151,8 @@ export default function ChatPage() {
     console.log(`Deleting message: ${messageId}`);
     setMessages(prevMessages => prevMessages.filter(msg => msg.id !== messageId));
     toast({ title: "Deleted", description: "Message removed from view." });
+    // Note: This only deletes from the current view, not from saved history yet.
+    // To make deletion permanent, update the saved session in localStorage as well.
   };
 
   const handleSpeak = (text: string) => {
@@ -131,16 +168,95 @@ export default function ChatPage() {
 
   // Function to handle starting a new chat
   const handleNewChat = () => {
-    // 1. Save current messages (optional, implement saving logic if needed)
-    // const sessionId = `chat-${Date.now()}`;
-    // localStorage.setItem(sessionId, JSON.stringify(messages));
-    // Add sessionId to a list of sessions in localStorage
+    if (typeof window === 'undefined') return;
+
+    // 1. Save current messages (if any)
+    if (messages.length > 0) {
+        const sessionId = `chat-${Date.now()}`;
+        // Create a preview name (e.g., first few words of the first user message or generic name)
+        const firstUserMessage = [...messages].reverse().find(msg => msg.sender === 'user'); // Find chronological first user message
+        const previewName = firstUserMessage
+            ? `${firstUserMessage.text.substring(0, 30)}...`
+            : `Chat ${format(Date.now(), 'yyyy-MM-dd HH:mm')}`;
+
+        const sessionData: SavedChatSession = {
+            id: sessionId,
+            name: previewName,
+            timestamp: Date.now(),
+            messages: messages // Save the current messages array (which is newest-first)
+        };
+
+        try {
+            // Save the full session data
+            localStorage.setItem(sessionId, JSON.stringify(sessionData));
+
+            // Update the session list
+            const sessionListJSON = localStorage.getItem('chatSessionList');
+            let sessionList: ChatSessionInfo[] = [];
+            if (sessionListJSON) {
+                try {
+                    sessionList = JSON.parse(sessionListJSON);
+                } catch (e) {
+                    console.error("Error parsing chat session list, resetting.", e);
+                    sessionList = []; // Reset if corrupted
+                }
+            }
+            // Add new session info to the list (or update if ID somehow exists?)
+             const existingIndex = sessionList.findIndex(s => s.id === sessionId);
+             const newSessionInfo: ChatSessionInfo = { id: sessionId, name: previewName, timestamp: sessionData.timestamp };
+             if (existingIndex > -1) {
+                 sessionList[existingIndex] = newSessionInfo; // Update existing (unlikely)
+             } else {
+                 sessionList.push(newSessionInfo);
+             }
+             // Optional: Limit history size
+             // sessionList.sort((a, b) => b.timestamp - a.timestamp); // Sort newest first
+             // sessionList = sessionList.slice(0, 50); // Keep only latest 50 sessions
+
+             localStorage.setItem('chatSessionList', JSON.stringify(sessionList));
+
+            toast({ title: "Chat Saved", description: `Session "${previewName}" saved.` });
+
+        } catch (error) {
+            console.error("Error saving chat session:", error);
+            toast({ variant: "destructive", title: "Save Error", description: "Could not save the previous chat session." });
+        }
+    } else {
+         // Don't save an empty chat
+         console.log("No messages to save, starting new chat.");
+    }
 
     // 2. Clear current messages state
     setMessages([]);
 
-    // 3. Reset any other relevant state (e.g., context, input field if not already cleared)
-    // Context reset might be needed if chat history affects AI responses
+    // 3. Optional: Reset any other relevant state (e.g., input field is handled by Footer)
+  };
+
+  // Function to handle restoring a chat session
+  const handleRestoreChatSession = (sessionId: string, showToast: boolean = true) => {
+      if (typeof window === 'undefined') return;
+      console.log(`Restoring chat session: ${sessionId}`);
+      try {
+          const sessionDataJSON = localStorage.getItem(sessionId);
+          if (sessionDataJSON) {
+              const sessionData: SavedChatSession = JSON.parse(sessionDataJSON);
+              // Ensure messages are in the correct order (newest first) if they weren't saved that way
+              // Assuming they were saved correctly as newest-first
+              setMessages(sessionData.messages);
+              if (showToast) {
+                 toast({ title: "Chat Restored", description: `Loaded session "${sessionData.name}".` });
+              }
+          } else {
+               if (showToast) {
+                  toast({ variant: "destructive", title: "Restore Error", description: "Could not find saved session data." });
+               }
+          }
+      } catch (error) {
+          console.error("Error restoring chat session:", error);
+          if (showToast) {
+             toast({ variant: "destructive", title: "Restore Error", description: "Could not load the chat session." });
+          }
+      }
   };
 
 
@@ -182,39 +298,37 @@ export default function ChatPage() {
         puterModelName = selectedModel; // Assign here
 
          // Standardize model names for Puter.js
-         if (puterModelName.startsWith('openrouter:')) {
-            // Keep the openrouter: prefix as is for the API call
-         } else if (puterModelName.startsWith('gpt') || puterModelName.startsWith('o')) {
-             // Puter often recognizes these directly, but let's be explicit for robustness
-             // Puter API needs openai/ prefix for OpenAI models if not using OpenRouter
-             puterModelName = `openai/${puterModelName}`;
-         } else if (puterModelName.startsWith('claude')) {
-             puterModelName = `anthropic/${puterModelName}`;
-         } else if (puterModelName.startsWith('deepseek')) {
-             puterModelName = `deepseek/${puterModelName}`;
-         } else if (puterModelName.startsWith('grok')) {
-             // Puter uses 'x-ai/' prefix for Grok as per docs
-             puterModelName = `x-ai/${puterModelName}`;
-         } else if (puterModelName.startsWith('mistral') || puterModelName.startsWith('pixtral') || puterModelName.startsWith('codestral')) {
-             // Explicitly add Mistral prefix for clarity, though Puter might handle it
-             puterModelName = `mistralai/${puterModelName}`;
-         } else if (puterModelName.startsWith('google/')) {
-            // Keep google prefix
-         } else if (puterModelName.startsWith('meta-llama/')) {
-             // Keep meta-llama prefix
-         } else {
-            // If no recognized prefix, assume it needs 'openrouter:' (safer than sending bare)
-            // This case shouldn't happen if context provides the correct name.
-            console.warn(`Model name ${selectedModel} lacks a recognized prefix. Assuming OpenRouter.`);
-            puterModelName = `openrouter:${puterModelName}`;
+         // Use the format required by Puter API based on context state
+         if (!puterModelName.includes(':') && !puterModelName.includes('/')) {
+             // If it's a plain model name (like 'gpt-4o-mini'), determine the provider
+             // This logic should align with AppHeader's grouping logic
+             if (puterModelName.startsWith('gpt') || puterModelName.startsWith('o')) {
+                 puterModelName = `openai/${puterModelName}`;
+             } else if (puterModelName.startsWith('claude')) {
+                 puterModelName = `anthropic/${puterModelName}`;
+             } else if (puterModelName.startsWith('deepseek')) {
+                 puterModelName = `deepseek/${puterModelName}`;
+             } else if (puterModelName.startsWith('grok')) {
+                 puterModelName = `x-ai/${puterModelName}`; // Correct prefix for Grok via Puter
+             } else if (puterModelName.startsWith('mistral') || puterModelName.startsWith('pixtral') || puterModelName.startsWith('codestral')) {
+                 puterModelName = `mistralai/${puterModelName}`;
+             }
+              // Add more providers here if needed (Gemini, Meta Llama usually have prefixes already)
+             // If it's an OpenRouter model selected from defaults without prefix, it needs fixing.
+             // But the context should provide the 'openrouter:' prefix.
+             else {
+                 console.warn(`Model name ${selectedModel} needs provider prefix. Assuming OpenRouter.`);
+                 puterModelName = `openrouter:${puterModelName}`; // Fallback guess
+             }
          }
+         // If it already has 'openrouter:' or 'provider/', use it as is.
 
         console.log(`Using model for Puter API call: ${puterModelName}`);
 
         const responseStream = await window.puter.ai.chat(
           inputText.trim(),
           {
-            model: puterModelName,
+            model: puterModelName, // Use the potentially prefixed/provider-qualified name
             stream: true,
           }
         );
@@ -223,22 +337,41 @@ export default function ChatPage() {
         for await (const part of responseStream) {
            let chunkText = '';
             // Refined logic to extract text from various stream formats
-            if (typeof part === 'string') { // Simple string chunk (less common but possible)
+            if (typeof part === 'string') { // Simple string chunk
                 chunkText = part;
-            } else if (part?.text) { // Standard or simple text part (OpenAI, Gemini, some OR)
+            } else if (part?.text) { // Standard text part (OpenAI, Gemini, some OR)
                 chunkText = part.text;
-            } else if (part?.message?.content) { // Nested structure (like Claude, Deepseek, Grok, some OR)
-                 if (Array.isArray(part.message.content) && part.message.content[0]?.text) {
-                     chunkText = part.message.content[0].text; // Claude array structure
-                 } else if (typeof part.message.content === 'string') {
-                    chunkText = part.message.content; // Simple string content (e.g., Grok, Deepseek, some OR)
+            // --- Start: Updated Logic for Nested Structures ---
+            } else if (part?.message?.content) { // Common nested structure (Claude, Deepseek, Grok, some OR)
+                // Handle cases where content is an array (like Claude)
+                 if (Array.isArray(part.message.content)) {
+                     // Check if the first element has text
+                     if (part.message.content[0]?.type === 'text' && part.message.content[0]?.text) {
+                         chunkText = part.message.content[0].text;
+                     }
                  }
+                 // Handle cases where content is a simple string (like Grok, Deepseek, maybe some OR)
+                 else if (typeof part.message.content === 'string') {
+                    chunkText = part.message.content;
+                 }
+             // --- End: Updated Logic for Nested Structures ---
             } else if (part?.choices?.[0]?.delta?.content) { // Common stream structure (OpenAI, some OR)
                  chunkText = part.choices[0].delta.content;
-            } else if (part?.message?.output) { // Potential structure for some models like Gemini via OpenRouter?
+            } else if (part?.message?.output) { // Potential structure?
                  if (typeof part.message.output === 'string') {
                     chunkText = part.message.output;
                  }
+            } else if (part?.error) { // Handle explicit errors in stream
+                 console.error("Error chunk in stream:", part.error);
+                 chunkText = `[Error: ${part.error.message || part.error}]`;
+                 // Stop processing further chunks for this message on error
+                 streamedText += chunkText; // Add error to text
+                 setMessages((prevMessages) =>
+                   prevMessages.map((msg) =>
+                     msg.id === aiMessageId ? { ...msg, text: streamedText, timestamp: Date.now() } : msg
+                   )
+                 );
+                 throw new Error(part.error.message || part.error); // Propagate error
             }
 
           if (chunkText) {
@@ -270,26 +403,28 @@ export default function ChatPage() {
              errorMsg = error.message;
              // Use the puterModelName variable defined outside the try block
              if (error.message.includes("Model not found") || error.message.includes("404")) {
-                 errorMsg = `Model '${puterModelName}' not found or incompatible with Puter.js. Please check the selected model name.`;
+                 errorMsg = `Model '${puterModelName}' not found or incompatible with Puter.js. Check settings.`;
              } else if (error.message.includes("quota") || error.message.includes("limit")) {
-                 errorMsg = "You may have exceeded your usage limit for this model.";
+                 errorMsg = "Usage limit likely exceeded for this model.";
              } else if (error.message.includes("auth") || error.message.includes("401")) {
-                 errorMsg = "Authentication failed or is required. Please sign in.";
+                 errorMsg = "Authentication failed or required. Sign in.";
              }
         } else if (typeof error === 'string') {
              errorMsg = error;
         }
 
+        // Update the placeholder message with the error or remove it
+        setMessages((prevMessages) =>
+             prevMessages.map((msg) =>
+               msg.id === aiMessageId ? { ...msg, text: `[Error: ${errorMsg}]`, timestamp: Date.now() } : msg
+             )
+         );
+
         toast({
           variant: "destructive",
           title: "AI Chat Error",
-          description: `Could not get response from AI: ${errorMsg}`,
+          description: `Could not get response: ${errorMsg}`,
         });
-
-        // Remove the specific placeholder AI message added for this request on error
-        if (aiMessageId) {
-           setMessages((prevMessages) => prevMessages.filter(msg => msg.id !== aiMessageId));
-        }
 
       } finally {
         setIsLoading(false);
@@ -299,7 +434,7 @@ export default function ChatPage() {
       toast({
         variant: "destructive",
         title: "Error",
-        description: "AI functionality is not available. Ensure Puter.js is loaded and you are signed in.",
+        description: "AI functionality not available. Ensure Puter.js is loaded.",
       });
        // Remove the user message if Puter isn't loaded (it's at the beginning)
        setMessages((prevMessages) => prevMessages.filter(msg => msg.id !== userMessage.id));
@@ -309,8 +444,13 @@ export default function ChatPage() {
   };
 
   return (
-    // Pass currentPageName="Chat", onSendMessage handler, and onNewChat handler to PageLayout
-    <PageLayout currentPageName="Chat" onSendMessage={handleSendMessage} onNewChat={handleNewChat}>
+    // Pass restore function to PageLayout -> Footer
+    <PageLayout
+        currentPageName="Chat"
+        onSendMessage={handleSendMessage}
+        onNewChat={handleNewChat}
+        onRestoreChat={handleRestoreChatSession} // Pass restore function
+    >
       {/* Main container for the chat display */}
       <div className="flex flex-col h-full flex-grow overflow-hidden">
         {/* Chat Display Area - Reverse order */}
@@ -319,15 +459,6 @@ export default function ChatPage() {
            <div className="flex flex-col-reverse space-y-4 space-y-reverse">
                 {/* Div to mark the end of messages for scrolling */}
                 <div ref={messagesEndRef} />
-
-               {/* Loading indicator for initial AI response (after user message) - Now appears at top */}
-               {/* {isLoading && messages.length > 0 && messages[0].sender === 'user' && (
-                 <div className="flex justify-start p-2">
-                    <div className="bg-muted p-3 rounded-lg max-w-[75%] shadow-md">
-                        <Skeleton className="h-4 w-16" />
-                    </div>
-                 </div>
-               )} */}
 
              {/* Map through messages (reverse order due to flex-col-reverse) */}
              {messages.map((message, index) => (

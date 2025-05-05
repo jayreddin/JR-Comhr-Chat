@@ -43,6 +43,14 @@ declare global {
   }
 }
 
+// Define structure for the list of sessions in localStorage
+interface ChatSessionInfo {
+    id: string;
+    name: string;
+    timestamp: number;
+}
+
+
 const providerLinks = [
     { name: "Jamie Reddin", href: "https://jayreddin.github.io" },
     { name: "Jamie Discord", href: "https://discord.gg/3YdvQfpPPr" },
@@ -118,9 +126,10 @@ const openRouterProvidersStructure = [{ provider: "OpenRouter", models: [] as st
 interface FooterProps {
   onSendMessage?: (message: string) => void; // Make prop optional
   onNewChat?: () => void; // Add optional onNewChat prop
+  onRestoreChat?: (sessionId: string) => void; // Add optional onRestoreChat prop
 }
 
-export function Footer({ onSendMessage, onNewChat }: FooterProps) {
+export function Footer({ onSendMessage, onNewChat, onRestoreChat }: FooterProps) {
     const currentYear = new Date().getFullYear();
     const [inputValue, setInputValue] = useState('');
     const [isRecording, setIsRecording] = useState(false);
@@ -153,7 +162,7 @@ export function Footer({ onSendMessage, onNewChat }: FooterProps) {
     const [isChatSettingsOpen, setIsChatSettingsOpen] = useState(false);
     const [isHistoryOpen, setIsHistoryOpen] = useState(false);
     const [isFileUploadOpen, setIsFileUploadOpen] = useState(false);
-    const [chatHistory, setChatHistory] = useState<{ id: string, name: string, timestamp: number }[]>([]); // Placeholder history
+    const [chatHistory, setChatHistory] = useState<ChatSessionInfo[]>([]); // Use ChatSessionInfo
 
 
     // --- Speech Recognition Logic ---
@@ -337,18 +346,50 @@ export function Footer({ onSendMessage, onNewChat }: FooterProps) {
         if (onNewChat) {
             console.log("Starting new chat session...");
             onNewChat(); // Call the parent's new chat handler
-            toast({ title: "New Chat Started", description: "Previous session saved." });
+            // Toast moved to parent handleNewChat for better timing
         } else {
              toast({ variant: "destructive", title: "Action Unavailable", description: "Cannot start a new chat here." });
         }
     };
 
+    // Function to load chat history list from localStorage
+    const loadChatHistoryList = () => {
+        if (typeof window !== 'undefined') {
+            const sessionListJSON = localStorage.getItem('chatSessionList');
+            if (sessionListJSON) {
+                try {
+                    const list = JSON.parse(sessionListJSON);
+                    // Sort by timestamp descending (newest first)
+                    list.sort((a: ChatSessionInfo, b: ChatSessionInfo) => b.timestamp - a.timestamp);
+                    setChatHistory(list);
+                } catch (error) {
+                    console.error("Error loading chat history list:", error);
+                    localStorage.removeItem('chatSessionList'); // Clear corrupted list
+                    setChatHistory([]);
+                }
+            } else {
+                setChatHistory([]);
+            }
+        }
+    };
+
+    // Call loadChatHistoryList when the history popover is about to open
+    const handleHistoryPopoverOpenChange = (open: boolean) => {
+         if (open) {
+            loadChatHistoryList();
+         }
+         setIsHistoryOpen(open);
+    };
+
+
     const handleRestoreChat = (sessionId: string) => {
-        console.log(`Restoring chat session: ${sessionId}`);
-        // 1. Fetch messages for sessionId from local storage
-        // 2. Update messages state (call parent prop)
-        setIsHistoryOpen(false); // Close popover
-        toast({ title: "Restore Chat", description: "Functionality not fully implemented." });
+        if (onRestoreChat) {
+            onRestoreChat(sessionId); // Call parent's restore function
+            setIsHistoryOpen(false); // Close popover
+            // Toast moved to parent handleRestoreChatSession
+        } else {
+             toast({ variant: "destructive", title: "Restore Error", description: "Cannot restore chat session here." });
+        }
     };
 
     const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -432,7 +473,7 @@ export function Footer({ onSendMessage, onNewChat }: FooterProps) {
      }, [chatMode]);
 
 
-     // Load settings on mount
+     // Load UI settings on mount (Model settings loaded by context provider)
     useEffect(() => {
         if (typeof window !== 'undefined') {
             const savedSettings = localStorage.getItem('chatSettings');
@@ -443,35 +484,18 @@ export function Footer({ onSendMessage, onNewChat }: FooterProps) {
                     setTheme(parsedSettings.theme || 'light');
                     setTextSize(parsedSettings.textSize || 14);
                     setChatMode(parsedSettings.chatMode || 'normal');
-                    // Update context state (if not already done by AppStateProvider)
-                    // Note: AppStateProvider already loads these, potentially causing double-setting.
-                    // Consider removing context updates here if AppStateProvider handles initial load.
-                    setActiveDefaultModels(parsedSettings.activeModels || modelProviders.flatMap(p => p.models));
-                    // Ensure OpenRouter models loaded from settings include the prefix
-                    setActiveOpenRouterModels(
-                         (parsedSettings.activeOpenRouterModels || []).map((m: string) =>
-                             m.startsWith('openrouter:') ? m : `openrouter:${m}`
-                         )
-                     );
-                    setOpenRouterActive(parsedSettings.openRouterActive || false);
 
-                     // Apply loaded settings immediately
+                     // Apply loaded UI settings immediately
                     document.documentElement.classList.toggle('dark', parsedSettings.theme === 'dark');
                     document.documentElement.style.setProperty('--chat-text-size', `${parsedSettings.textSize || 14}px`);
                     document.body.dataset.chatMode = parsedSettings.chatMode || 'normal'; // Apply chat mode
 
                 } catch (e) {
-                    console.error("Failed to parse saved chat settings", e);
+                    console.error("Failed to parse saved chat settings for UI", e);
                 }
             }
         }
-        // Load chat history placeholder (replace with actual loading logic)
-        setChatHistory([
-            { id: '1', name: 'Chat about Next.js', timestamp: Date.now() - 3600000 },
-            { id: '2', name: 'Puter.js Integration', timestamp: Date.now() - 7200000 },
-            { id: '3', name: 'Tailwind Styling', timestamp: Date.now() - 10800000 },
-        ]);
-    }, [setActiveDefaultModels, setActiveOpenRouterModels, setOpenRouterActive]); // Add context setters to dependency array
+    }, []); // Empty dependency array
 
 
      // Fetch OpenRouter models when the switch is activated
@@ -481,9 +505,11 @@ export function Footer({ onSendMessage, onNewChat }: FooterProps) {
             const fetchOpenRouterModels = async () => {
                 setIsLoadingOpenRouterModels(true); // Use context setter
                 try {
-                    const response = await fetch('https://openrouter.ai/api/v1/models');
+                    // Use the proxy endpoint
+                     const response = await fetch('/api/openrouter-models');
                     if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
+                         const errorData = await response.json().catch(() => ({ message: `HTTP error! status: ${response.status}` }));
+                         throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
                     }
                     const data = await response.json();
                     // Extract model IDs and prepend 'openrouter:' prefix
@@ -492,7 +518,7 @@ export function Footer({ onSendMessage, onNewChat }: FooterProps) {
                     console.log("Fetched OpenRouter Models:", modelIdsWithPrefix);
                 } catch (error) {
                     console.error("Failed to fetch OpenRouter models:", error);
-                    toast({ variant: "destructive", title: "Fetch Error", description: "Could not load OpenRouter models. Please try again later." });
+                    toast({ variant: "destructive", title: "Fetch Error", description: `Could not load OpenRouter models. ${error instanceof Error ? error.message : ''}` });
                     setOpenRouterActive(false); // Turn switch off on error using context setter
                 } finally {
                     setIsLoadingOpenRouterModels(false); // Use context setter
@@ -532,11 +558,6 @@ export function Footer({ onSendMessage, onNewChat }: FooterProps) {
         setActiveFunc([]);
     };
 
-    // Use the derived `enabledModels` from context directly
-    // const allEnabledModels = useMemo(() => {
-    //     return [...activeDefaultModels, ...activeOpenRouterModels];
-    // }, [activeDefaultModels, activeOpenRouterModels]);
-
     // --- End Control Bar Actions ---
 
 
@@ -554,8 +575,8 @@ export function Footer({ onSendMessage, onNewChat }: FooterProps) {
                         </Button>
 
                          {/* Chat History Popover */}
-                         {/* Use align="center" to center the popover content */}
-                        <Popover open={isHistoryOpen} onOpenChange={setIsHistoryOpen}>
+                         {/* Use align="center" and manage open state */}
+                        <Popover open={isHistoryOpen} onOpenChange={handleHistoryPopoverOpenChange}>
                              <PopoverTrigger asChild>
                                 <Button variant="ghost" size="icon" aria-label="Chat History">
                                     <History className="h-5 w-5 text-muted-foreground" />
@@ -569,8 +590,10 @@ export function Footer({ onSendMessage, onNewChat }: FooterProps) {
                                     {chatHistory.length > 0 ? (
                                         <ScrollArea className="h-40">
                                             {chatHistory.map(session => (
-                                                <Button key={session.id} variant="link" onClick={() => handleRestoreChat(session.id)} className="block w-full text-left p-1 h-auto">
-                                                    {session.name} ({new Date(session.timestamp).toLocaleTimeString()})
+                                                <Button key={session.id} variant="link" onClick={() => handleRestoreChat(session.id)} className="block w-full text-left p-1 h-auto text-xs"> {/* Smaller text */}
+                                                     {/* Truncate long names */}
+                                                     <span className="truncate" title={session.name}>{session.name}</span>
+                                                     <span className="text-muted-foreground/70 ml-2">({new Date(session.timestamp).toLocaleTimeString()})</span>
                                                 </Button>
                                             ))}
                                         </ScrollArea>

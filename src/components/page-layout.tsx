@@ -8,9 +8,10 @@ interface PageLayoutProps {
   currentPageName?: string;
   onSendMessage?: (message: string) => void; // Add optional onSendMessage prop
   onNewChat?: () => void; // Add optional onNewChat prop
+  onRestoreChat?: (sessionId: string) => void; // Add optional onRestoreChat prop
 }
 
-export function PageLayout({ children, currentPageName, onSendMessage, onNewChat }: PageLayoutProps) {
+export function PageLayout({ children, currentPageName, onSendMessage, onNewChat, onRestoreChat }: PageLayoutProps) {
   return (
     // Ensure the root layout div takes full height and uses flex column
     <div className="flex flex-col min-h-screen">
@@ -22,7 +23,11 @@ export function PageLayout({ children, currentPageName, onSendMessage, onNewChat
             {children}
         </div>
       </main>
-       <Footer onSendMessage={onSendMessage} onNewChat={onNewChat} /> {/* Pass onSendMessage and onNewChat to Footer */}
+       <Footer
+            onSendMessage={onSendMessage}
+            onNewChat={onNewChat}
+            onRestoreChat={onRestoreChat} // Pass restore function to Footer
+        />
     </div>
   );
 }
