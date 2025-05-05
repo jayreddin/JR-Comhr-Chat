@@ -34,6 +34,7 @@ export default function ChatPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [username, setUsername] = useState<string>('User'); // Placeholder username
   const scrollAreaRef = useRef<HTMLDivElement>(null); // Ref for the scroll area viewport
+  let puterModelName: string = ''; // Declare variable outside try block
 
   // Get username from Puter auth when component mounts
   useEffect(() => {
@@ -134,21 +135,28 @@ export default function ChatPage() {
         setMessages((prevMessages) => [placeholderAiMessage, ...prevMessages]);
 
 
-        let puterModelName = selectedModel;
-         if (!puterModelName.includes('/') && (puterModelName.startsWith('gpt') || puterModelName.startsWith('o'))) {
+        puterModelName = selectedModel; // Assign here
+         // Standardize model names for Puter.js
+         if (puterModelName.startsWith('gpt') || puterModelName.startsWith('o')) {
              puterModelName = `openai/${puterModelName}`;
-         } else if (!puterModelName.includes('/') && puterModelName.startsWith('claude')) {
+         } else if (puterModelName.startsWith('claude')) {
              puterModelName = `anthropic/${puterModelName}`;
-         } else if (!puterModelName.includes('/') && puterModelName.startsWith('deepseek')) {
+         } else if (puterModelName.startsWith('deepseek')) {
              puterModelName = `deepseek/${puterModelName}`;
-         } else if (!puterModelName.includes('/') && puterModelName.startsWith('grok')) {
+         } else if (puterModelName.startsWith('grok')) {
              // Puter uses 'x-ai/' prefix for Grok as per docs
              puterModelName = `x-ai/${puterModelName}`;
-         } else if (!puterModelName.includes('/') && (puterModelName.startsWith('mistral') || puterModelName.startsWith('pixtral') || puterModelName.startsWith('codestral'))) {
+         } else if (puterModelName.startsWith('mistral') || puterModelName.startsWith('pixtral') || puterModelName.startsWith('codestral')) {
              // Puter doesn't seem to require a prefix for these based on docs
-             // Keep them as is unless errors occur
+             // Keep them as is unless errors occur - prepend if needed
+             // puterModelName = `mistralai/${puterModelName}`; // Example if needed
+         } else if (puterModelName.startsWith('google/')) {
+            // Keep google prefix
+         } else if (puterModelName.startsWith('meta-llama/')) {
+             // Keep meta-llama prefix
+         } else {
+            console.warn(`Model name ${selectedModel} does not have a recognized prefix for Puter.js. Using as is.`);
          }
-         // Llama and Gemini models in the list already have prefixes like 'meta-llama/' or 'google/'
 
         console.log(`Using model for Puter: ${puterModelName}`);
 
@@ -164,15 +172,15 @@ export default function ChatPage() {
         for await (const part of responseStream) {
            let chunkText = '';
             // Refined logic to extract text from various stream formats
-            if (part?.text) { // Standard or simple text part
+            if (part?.text) { // Standard or simple text part (OpenAI, Gemini)
                 chunkText = part.text;
-            } else if (part?.message?.content) { // Nested structure (like Claude)
+            } else if (part?.message?.content) { // Nested structure (like Claude, Deepseek, Grok)
                  if (Array.isArray(part.message.content) && part.message.content[0]?.text) {
                      chunkText = part.message.content[0].text; // Claude array structure
                  } else if (typeof part.message.content === 'string') {
-                    chunkText = part.message.content; // Simple string content
+                    chunkText = part.message.content; // Simple string content (e.g., Grok, Deepseek)
                  }
-            } else if (typeof part === 'string') { // The part itself is the text chunk
+            } else if (typeof part === 'string') { // The part itself is the text chunk (less common now)
                 chunkText = part;
             }
 
@@ -202,10 +210,13 @@ export default function ChatPage() {
         let errorMsg = "An unknown error occurred.";
         if (error instanceof Error) {
              errorMsg = error.message;
-             if (error.message.includes("Model not found")) {
-                 errorMsg = `Model '${selectedModel}' not found or incompatible. Please try another model.`;
+             // Use the puterModelName variable defined outside the try block
+             if (error.message.includes("Model not found") || error.message.includes("404")) {
+                 errorMsg = `Model '${puterModelName}' not found or incompatible with Puter.js. Please try another model or check the selected model name.`;
              } else if (error.message.includes("quota") || error.message.includes("limit")) {
                  errorMsg = "You may have exceeded your usage limit for this model.";
+             } else if (error.message.includes("auth") || error.message.includes("401")) {
+                 errorMsg = "Authentication failed or is required. Please sign in.";
              }
         } else if (typeof error === 'string') {
              errorMsg = error;
@@ -216,9 +227,11 @@ export default function ChatPage() {
           title: "AI Chat Error",
           description: `Could not get response from AI: ${errorMsg}`,
         });
-        // Remove the AI placeholder message on error
-         setMessages((prevMessages) => prevMessages.filter(msg => msg.id !== `ai-${Date.now() - 1}`)); // Needs careful ID management
-         setMessages((prevMessages) => prevMessages.filter(msg => !(msg.sender === 'ai' && msg.text === '...'))); // Fallback removal
+
+        // Attempt to find and remove the AI placeholder message on error
+        // Finding the exact placeholder ID can be tricky if time passes.
+        // We might need a more robust way, like filtering by text '...' and sender 'ai'.
+        setMessages((prevMessages) => prevMessages.filter(msg => !(msg.sender === 'ai' && msg.text === '...')));
 
       } finally {
         setIsLoading(false);
@@ -326,4 +339,3 @@ export default function ChatPage() {
     </PageLayout>
   );
 }
-```
