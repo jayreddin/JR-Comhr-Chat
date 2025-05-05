@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -142,9 +143,10 @@ const groupModelsByProvider = (enabledModels: string[]) => {
 
 interface AppHeaderProps {
   currentPageName?: string; // Optional prop for current page name override
+  showSignIn?: boolean; // Add prop to control sign-in visibility
 }
 
-export function AppHeader({ currentPageName }: AppHeaderProps) {
+export function AppHeader({ currentPageName, showSignIn = true }: AppHeaderProps) { // Default showSignIn to true
   const router = useRouter();
   const pathname = usePathname();
   const isMobile = useIsMobile(); // Check if mobile
@@ -214,7 +216,7 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
     setActivePage(currentPathItem || null);
   }, [pathname]);
 
-  const handleSignIn = async () => {
+ const handleSignIn = async () => {
     if (typeof window === 'undefined' || !window.puter) {
       toast({ variant: "destructive", title: "Error", description: "Authentication service not ready. Please wait a moment and try again." });
       console.error("Puter library not loaded or window not available.");
@@ -223,7 +225,7 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
 
     console.log("Attempting sign in...");
 
-    // Use puter.auth.signIn() for both desktop and mobile for consistency with popup flow
+    // Prefer puter.auth.signIn() for popup flow which is generally better for UX
     const authMethod = window.puter.auth?.signIn;
     const authMethodName = 'puter.auth.signIn';
 
@@ -236,26 +238,23 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
     try {
         console.log(`Trying ${authMethodName}()...`);
         // Call the authentication method - it returns a promise that resolves on successful sign-in.
-        // It does not directly return user info but signals completion.
         await authMethod();
         console.log(`${authMethodName} finished successfully.`);
 
-        // Wait slightly AFTER the promise resolves to allow Puter's internal state
-        // and potential redirects/refreshes to settle before checking status.
-        await new Promise(resolve => setTimeout(resolve, 500)); // Reduced delay slightly
+        // Wait slightly AFTER the promise resolves to allow Puter's internal state to settle
+        await new Promise(resolve => setTimeout(resolve, 300));
 
         console.log("Re-checking auth status after successful authentication attempt.");
         await checkAuthStatus(); // Check status again after the attempt
 
     } catch (error: any) {
-        // signIn() promise should technically never reject according to docs, but handle potential errors/cancellations if the flow is interrupted.
-        // The user cancelling the popup might not cause a rejection, the promise just might not resolve.
-        // However, if there's an underlying issue or unexpected behavior, catch it.
+         // This catch block might be less likely to trigger with signIn()
+         // but good practice to keep it.
         console.error("Sign in error caught or process interrupted:", error);
         toast({ variant: "destructive", title: "Sign In Issue", description: `An issue occurred during sign in: ${error.message || 'Process interrupted or unknown error'}. Please try again.` });
 
         // Re-check status even on error/interruption after a small delay
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise(resolve => setTimeout(resolve, 300));
         console.log("Re-checking auth status after sign-in attempt resulted in error or interruption.");
         await checkAuthStatus();
     }
@@ -306,25 +305,30 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-14 items-center justify-between max-w-screen-2xl px-4 md:px-6">
 
-        {/* Left side: Authentication */}
+        {/* Left side: Authentication (Conditional Rendering) */}
         <div className="flex items-center space-x-2 min-w-[150px]"> {/* Added min-width */}
-          {isSignedIn === undefined ? ( // Show loading state until status is known
-            <Button variant="outline" size="sm" disabled>Loading Auth...</Button>
-          ) : isSignedIn ? (
-            <div className="flex items-center space-x-2">
-              <div className="flex flex-col items-start text-xs">
-                {/* Add border to username */}
-                <span className="font-medium text-foreground border border-border rounded-md px-2 py-1">{username || 'User'}</span>
-                <Button variant="ghost" size="sm" onClick={handleSignOut} className="h-auto p-0 text-muted-foreground hover:text-destructive mt-1">
-                  <LogOut className="mr-1 h-3 w-3" /> Sign Out
+          {showSignIn && ( // Only render if showSignIn is true
+            <>
+              {isSignedIn === undefined ? ( // Show loading state until status is known
+                <Button variant="outline" size="sm" disabled>Loading Auth...</Button>
+              ) : isSignedIn ? (
+                <div className="flex items-center space-x-2">
+                  <div className="flex flex-col items-start text-xs">
+                    {/* Add border to username */}
+                    <span className="font-medium text-foreground border border-border rounded-md px-2 py-1">{username || 'User'}</span>
+                    <Button variant="ghost" size="sm" onClick={handleSignOut} className="h-auto p-0 text-muted-foreground hover:text-destructive mt-1">
+                      <LogOut className="mr-1 h-3 w-3" /> Sign Out
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <Button variant="outline" size="sm" onClick={handleSignIn}>
+                  <LogIn className="mr-2 h-4 w-4" /> Sign In
                 </Button>
-              </div>
-            </div>
-          ) : (
-            <Button variant="outline" size="sm" onClick={handleSignIn}>
-              <LogIn className="mr-2 h-4 w-4" /> Sign In
-            </Button>
+              )}
+            </>
           )}
+          {!showSignIn && <div className="min-w-[150px] h-10"></div>} {/* Add placeholder if sign-in is hidden */}
         </div>
 
         {/* Center: App Title or Model Selector */}
