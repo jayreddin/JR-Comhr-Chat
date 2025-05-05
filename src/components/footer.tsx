@@ -537,11 +537,8 @@ export function Footer({ onSendMessage }: FooterProps) {
                                         </TabsContent>
                                         <TabsContent value="models">
                                             <Card>
-                                                 <CardHeader>
-                                                    <CardTitle>Model Selection</CardTitle>
-                                                    <CardDescription>Choose the models available in the dropdown.</CardDescription>
-                                                 </CardHeader>
-                                                 <CardContent className="space-y-4">
+                                                 {/* Removed CardHeader */}
+                                                 <CardContent className="space-y-4 pt-6"> {/* Added pt-6 for spacing */}
                                                     {/* Default Models Box */}
                                                     <ModelSelectionBox
                                                         title="Default Models"
@@ -574,7 +571,7 @@ export function Footer({ onSendMessage }: FooterProps) {
                                         </TabsContent>
                                      </Tabs>
                                 </div> {/* End scrollable area */}
-                                <DialogFooter className="mt-4 pt-4 border-t justify-center sm:justify-center"> {/* Added justify-center */}
+                                <DialogFooter className="mt-4 pt-4 border-t sticky bottom-0 bg-background py-4 justify-center sm:justify-center"> {/* Added sticky, bottom-0, bg-background, py-4 */}
                                     <DialogClose asChild>
                                         <Button variant="outline">Cancel</Button>
                                     </DialogClose>
@@ -697,7 +694,6 @@ function ModelSelectionBox({ title, providers, activeModels, onToggle, onSelectA
                      <Button variant="ghost" size="sm" onClick={onSelectAll}>Select All</Button>
                      <Button variant="ghost" size="sm" onClick={onDeselectAll}>Deselect All</Button>
                     <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setIsMinimized(!isMinimized)}>
-                        {/* Toggle icon based on state - requires importing ChevronsUpDown or similar */}
                         <Minimize2 className="h-4 w-4" />
                     </Button>
                 </div>
@@ -705,7 +701,8 @@ function ModelSelectionBox({ title, providers, activeModels, onToggle, onSelectA
             {/* Conditionally render content based on isMinimized */}
             {!isMinimized && (
                 <CardContent>
-                    <ScrollArea className="h-48 border rounded-md p-2">
+                    {/* Use ScrollArea without explicit scrollbar */}
+                    <ScrollArea className="h-48 border rounded-md p-2 [&>div>div[style]]:!block"> {/* Style to force scrollbar visibility, then hide via CSS */}
                         <div className="space-y-3">
                             {providers.map(provider => (
                                 <div key={provider.provider}>

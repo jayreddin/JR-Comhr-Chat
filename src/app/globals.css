@@ -95,4 +95,21 @@ body {
   .text-sm {
     font-size: var(--chat-text-size); /* Override default text-sm using variable */
   }
+
+  /* Hide scrollbar for elements with [&>div>div[style]]:!block class, often used with ScrollArea */
+  /* This targets the direct child div that Radix ScrollArea uses for the scrollbar */
+  .scrollbar-hide > div > [data-radix-scroll-area-viewport] + div > [data-radix-scroll-area-scrollbar] {
+    display: none;
+  }
+
+  /* Fallback for Webkit browsers */
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Fallback for IE/Edge */
+  .scrollbar-hide {
+    -ms-overflow-style: none; /* IE and Edge */
+    scrollbar-width: none; /* Firefox */
+  }
 }

@@ -8,13 +8,14 @@ import { cn } from "@/lib/utils"
 
 interface ScrollAreaProps extends React.ComponentPropsWithoutRef<typeof ScrollAreaPrimitive.Root> {
   viewportRef?: React.RefObject<HTMLDivElement>; // Add optional ref prop for viewport
+  scrollbarClassName?: string; // Add optional class for scrollbar
 }
 
 
 const ScrollArea = React.forwardRef<
   React.ElementRef<typeof ScrollAreaPrimitive.Root>,
   ScrollAreaProps // Use the extended interface
->(({ className, children, viewportRef, ...props }, ref) => (
+>(({ className, children, viewportRef, scrollbarClassName, ...props }, ref) => (
   <ScrollAreaPrimitive.Root
     ref={ref}
     className={cn("relative overflow-hidden", className)}
@@ -26,7 +27,8 @@ const ScrollArea = React.forwardRef<
         className="h-full w-full rounded-[inherit]">
       {children}
     </ScrollAreaPrimitive.Viewport>
-    <ScrollBar />
+    {/* Pass scrollbarClassName to ScrollBar */}
+    <ScrollBar className={scrollbarClassName} />
     <ScrollAreaPrimitive.Corner />
   </ScrollAreaPrimitive.Root>
 ))
@@ -45,7 +47,7 @@ const ScrollBar = React.forwardRef<
         "h-full w-2.5 border-l border-l-transparent p-[1px]",
       orientation === "horizontal" &&
         "h-2.5 flex-col border-t border-t-transparent p-[1px]",
-      className
+      className // Apply the passed className here
     )}
     {...props}
   >
