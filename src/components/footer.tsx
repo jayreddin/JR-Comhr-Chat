@@ -131,6 +131,8 @@ interface FooterProps {
   onRestoreChat?: (sessionId: string) => void; // Add optional onRestoreChat prop
 }
 
+const BASE_FONT_SIZE_PX = 14; // Define a base font size in pixels
+
 export function Footer({ onSendMessage, onNewChat, onRestoreChat }: FooterProps) {
     const currentYear = new Date().getFullYear();
     const [inputValue, setInputValue] = useState('');
@@ -160,7 +162,8 @@ export function Footer({ onSendMessage, onNewChat, onRestoreChat }: FooterProps)
 
     // State for Chat Settings (UI only, context holds the actual state)
     const [theme, setTheme] = useState<'light' | 'dark'>('light');
-    const [textSize, setTextSize] = useState<number>(14);
+    // Use percentage scale for text size internally, default to 100%
+    const [textSizeScale, setTextSizeScale] = useState<number>(100);
     const [chatMode, setChatMode] = useState<'normal' | 'compact'>('normal');
     const [showEnabledOnly, setShowEnabledOnly] = useState(false);
     const [isChatSettingsOpen, setIsChatSettingsOpen] = useState(false);
@@ -418,7 +421,7 @@ export function Footer({ onSendMessage, onNewChat, onRestoreChat }: FooterProps)
                 reader.onloadend = () => {
                     setFilePreview(reader.result as string);
                 };
-                reader.readDataURL(file);
+                reader.readAsDataURL(file);
             }
             // Read content for text-based files (or PDF - needs more complex handling later)
             else if (isText) {
@@ -479,13 +482,13 @@ export function Footer({ onSendMessage, onNewChat, onRestoreChat }: FooterProps)
 
 
     const handleSaveSettings = () => {
-        console.log("Saving chat settings:", { theme, textSize, chatMode, activeDefaultModels, openRouterActive, activeOpenRouterModels });
+        console.log("Saving chat settings:", { theme, textSizeScale, chatMode, activeDefaultModels, openRouterActive, activeOpenRouterModels });
         // Settings are now saved directly via context setters in the UI controls.
         // This function just saves to localStorage.
         try {
             localStorage.setItem('chatSettings', JSON.stringify({
                 theme,
-                textSize,
+                textSizeScale, // Save the percentage scale
                 chatMode,
                 activeModels: activeDefaultModels, // Use context state
                 openRouterActive,               // Use context state
@@ -508,12 +511,14 @@ export function Footer({ onSendMessage, onNewChat, onRestoreChat }: FooterProps)
          }
      }, [theme]);
 
-     // Apply text size instantly
+     // Apply text size instantly using percentage
      useEffect(() => {
          if (typeof window !== 'undefined') {
-            document.documentElement.style.setProperty('--chat-text-size', `${textSize}px`);
+            const actualFontSizePx = (BASE_FONT_SIZE_PX * textSizeScale) / 100;
+            document.documentElement.style.setProperty('--chat-text-size', `${actualFontSizePx}px`);
+            console.log("Applying text size:", `${actualFontSizePx}px (${textSizeScale}%)`); // Log change
          }
-     }, [textSize]);
+     }, [textSizeScale]);
 
      // Apply chat mode instantly using data attribute on body
      useEffect(() => {
@@ -533,12 +538,15 @@ export function Footer({ onSendMessage, onNewChat, onRestoreChat }: FooterProps)
                     const parsedSettings = JSON.parse(savedSettings);
                     // Set local state for UI controls
                     setTheme(parsedSettings.theme || 'light');
-                    setTextSize(parsedSettings.textSize || 14);
+                    // Load percentage scale, default to 100 if not saved
+                    setTextSizeScale(parsedSettings.textSizeScale || 100);
                     setChatMode(parsedSettings.chatMode || 'normal');
 
                      // Apply loaded UI settings immediately
                     document.documentElement.classList.toggle('dark', parsedSettings.theme === 'dark');
-                    document.documentElement.style.setProperty('--chat-text-size', `${parsedSettings.textSize || 14}px`);
+                    // Calculate initial font size from loaded scale
+                    const initialFontSizePx = (BASE_FONT_SIZE_PX * (parsedSettings.textSizeScale || 100)) / 100;
+                    document.documentElement.style.setProperty('--chat-text-size', `${initialFontSizePx}px`);
                     document.body.dataset.chatMode = parsedSettings.chatMode || 'normal'; // Apply chat mode
 
                 } catch (e) {
@@ -776,18 +784,24 @@ export function Footer({ onSendMessage, onNewChat, onRestoreChat }: FooterProps)
                                                             <span>Dark</span>
                                                         </div>
                                                     </div>
-                                                    {/* Text Size Slider */}
+                                                    {/* Text Size Slider - Updated to Percentage */}
                                                     <div className="space-y-2">
-                                                         <Label htmlFor="text-size-slider">Text Size ({textSize}px)</Label>
+                                                         <Label htmlFor="text-size-slider">Text Size ({textSizeScale}%)</Label>
                                                          <Slider
                                                             id="text-size-slider"
-                                                            min={10}
-                                                            max={24}
-                                                            step={1}
-                                                            value={[textSize]}
-                                                            onValueChange={(value) => setTextSize(value[0])}
+                                                            min={80} // e.g., 80% of base
+                                                            max={150} // e.g., 150% of base
+                                                            step={5} // Steps of 5%
+                                                            value={[textSizeScale]}
+                                                            onValueChange={(value) => setTextSizeScale(value[0])}
                                                          />
-                                                         <p className="text-muted-foreground text-xs" style={{ fontSize: `${textSize}px` }}>This is sample text.</p>
+                                                         {/* Update sample text size dynamically */}
+                                                         <p
+                                                            className="text-muted-foreground text-xs" // Base class
+                                                            style={{ fontSize: `calc(var(--chat-text-size) * ${textSizeScale / 100})` }}
+                                                          >
+                                                            This is sample text.
+                                                         </p>
                                                     </div>
                                                      {/* Chat Mode Selection */}
                                                     <div className="flex items-center justify-between">

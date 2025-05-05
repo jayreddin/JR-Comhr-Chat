@@ -80,6 +80,13 @@ interface AppStateContextProps {
   isLoadingOpenRouterModels: boolean;
   setIsLoadingOpenRouterModels: Dispatch<SetStateAction<boolean>>;
   enabledModels: string[]; // Derived list of all enabled models (WITH prefix for OR)
+  // Add UI state managed by context (moved from Footer's local state)
+  theme: 'light' | 'dark';
+  setTheme: Dispatch<SetStateAction<'light' | 'dark'>>;
+  textSizeScale: number; // Percentage scale (e.g., 100 for 100%)
+  setTextSizeScale: Dispatch<SetStateAction<number>>;
+  chatMode: 'normal' | 'compact';
+  setChatMode: Dispatch<SetStateAction<'normal' | 'compact'>>;
 }
 
 // Create the context with a default value (or null)
@@ -94,12 +101,18 @@ interface AppStateProviderProps {
 }
 
 export const AppStateProvider: React.FC<AppStateProviderProps> = ({ children }) => {
+    // Model Selection State
     const [selectedModel, setSelectedModel] = useState<string>(initialSelectedModel);
     const [activeDefaultModels, setActiveDefaultModels] = useState<string[]>(allDefaultModels); // Start with all default models active
     const [activeOpenRouterModels, setActiveOpenRouterModels] = useState<string[]>([]);
     const [openRouterActive, setOpenRouterActive] = useState<boolean>(false);
     const [availableOpenRouterModels, setAvailableOpenRouterModels] = useState<string[]>([]);
     const [isLoadingOpenRouterModels, setIsLoadingOpenRouterModels] = useState<boolean>(false);
+
+    // UI Settings State (now in context)
+    const [theme, setTheme] = useState<'light' | 'dark'>('light');
+    const [textSizeScale, setTextSizeScale] = useState<number>(100); // Default 100%
+    const [chatMode, setChatMode] = useState<'normal' | 'compact'>('normal');
 
     // Derive the list of all enabled models using useMemo
     const enabledModels = useMemo(() => {
@@ -127,6 +140,11 @@ export const AppStateProvider: React.FC<AppStateProviderProps> = ({ children }) 
                     );
                     setOpenRouterActive(parsedSettings.openRouterActive || false);
 
+                    // Load UI settings into context state
+                    setTheme(parsedSettings.theme || 'light');
+                    setTextSizeScale(parsedSettings.textSizeScale || 100); // Load percentage scale
+                    setChatMode(parsedSettings.chatMode || 'normal');
+
                     // Check if saved selectedModel is valid before setting
                     const savedSelected = parsedSettings.selectedModel;
                     // Derive currently enabled models based on loaded settings (ensure OR models have prefix)
@@ -145,8 +163,11 @@ export const AppStateProvider: React.FC<AppStateProviderProps> = ({ children }) 
                         setSelectedModel(initialSelectedModel);
                     }
 
-                    // Apply UI settings directly (theme, text size, chat mode are handled in Footer now)
-                    // They could potentially be moved here if desired for centralization.
+                    // Apply loaded UI settings immediately (still done in Footer, but could be done here)
+                    // document.documentElement.classList.toggle('dark', parsedSettings.theme === 'dark');
+                    // const initialFontSizePx = (BASE_FONT_SIZE_PX * (parsedSettings.textSizeScale || 100)) / 100;
+                    // document.documentElement.style.setProperty('--chat-text-size', `${initialFontSizePx}px`);
+                    // document.body.dataset.chatMode = parsedSettings.chatMode || 'normal';
 
                 } catch (e) {
                     console.error("Failed to parse saved chat settings for AppState", e);
@@ -155,6 +176,9 @@ export const AppStateProvider: React.FC<AppStateProviderProps> = ({ children }) 
                     setActiveOpenRouterModels([]);
                     setOpenRouterActive(false);
                     setSelectedModel(initialSelectedModel);
+                    setTheme('light');
+                    setTextSizeScale(100);
+                    setChatMode('normal');
                 }
             } else {
                  // No saved settings, use defaults
@@ -162,6 +186,9 @@ export const AppStateProvider: React.FC<AppStateProviderProps> = ({ children }) 
                  setActiveOpenRouterModels([]);
                  setOpenRouterActive(false);
                  setSelectedModel(initialSelectedModel);
+                 setTheme('light');
+                 setTextSizeScale(100);
+                 setChatMode('normal');
             }
         }
     }, []); // Empty dependency array ensures this runs only once on mount
@@ -218,6 +245,13 @@ export const AppStateProvider: React.FC<AppStateProviderProps> = ({ children }) 
         isLoadingOpenRouterModels,
         setIsLoadingOpenRouterModels,
         enabledModels, // Provide the derived list (OR models prefixed)
+        // Provide UI state and setters
+        theme,
+        setTheme,
+        textSizeScale,
+        setTextSizeScale,
+        chatMode,
+        setChatMode,
     };
 
   return (

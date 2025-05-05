@@ -25,7 +25,7 @@
       "command": "node",
       "args": ["/home/user/Documents/Cline/MCP/weather-server/build/index.js"],
       "env": {
-        "OPENWEATHER_API_KEY": "user-provided-api-key"
+        "OPENWEATHER_API_KEY": "51e01c7aa54fcf760ed94603dd729d36"
       },
       "disabled": false,
       "autoApprove": []
