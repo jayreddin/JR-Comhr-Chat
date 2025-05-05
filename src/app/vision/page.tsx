@@ -12,6 +12,14 @@ import { format } from 'date-fns';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/hooks/use-toast';
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"; // Import Alert components
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogDescription,
+    DialogFooter,
+} from "@/components/ui/dialog"; // Import Dialog components
 import { cn } from '@/lib/utils';
 
 
@@ -25,7 +33,7 @@ interface Message {
 }
 
 // Define the model name constant
-const GEMINI_MODEL_NAME = "gemini-1.5-flash"; // Use the correct model name
+const GEMINI_MODEL_NAME = "gemini-1.5-flash"; // Correct model name
 
 export default function VisionPage() {
     const [apiKey, setApiKey] = useState<string | null>(null);
@@ -136,23 +144,30 @@ export default function VisionPage() {
                 body: JSON.stringify(requestBody),
             });
 
+            let errorData: any = {}; // Use any to avoid strict type errors during error parsing
+            let detailedMessage = `Gemini API Error: ${response.status} ${response.statusText}`;
+
             if (!response.ok) {
-                let errorData = {};
-                let detailedMessage = `Gemini API Error: ${response.status} ${response.statusText}`;
                 try {
-                    errorData = await response.json();
-                     console.error("Gemini API Error Response:", errorData); // Log detailed error
-                     // Try to extract more specific error message
-                     if (typeof errorData === 'object' && errorData !== null && 'error' in errorData && typeof errorData.error === 'object' && errorData.error !== null && 'message' in errorData.error) {
-                        detailedMessage += ` - ${errorData.error.message}`;
+                    const textError = await response.text(); // Get the raw text response
+                    try {
+                        errorData = JSON.parse(textError); // Try to parse as JSON
+                         console.error("Gemini API Error Response (JSON):", errorData);
+                         // Try to extract more specific error message from JSON
+                         if (typeof errorData === 'object' && errorData !== null && 'error' in errorData && typeof errorData.error === 'object' && errorData.error !== null && 'message' in errorData.error) {
+                            detailedMessage += ` - ${errorData.error.message}`;
+                         } else if (textError) {
+                             detailedMessage += ` - ${textError}`; // Use raw text if JSON parsing fails or doesn't have expected structure
+                         }
+                    } catch (parseError) {
+                         console.error("Could not parse error response as JSON:", parseError);
+                         // Use raw text error if JSON parsing failed
+                         if (textError) {
+                            detailedMessage += ` - ${textError}`;
+                         }
                      }
-                } catch (parseError) {
-                    console.error("Could not parse error response:", parseError);
-                    // If response body isn't JSON or empty
-                    const textError = await response.text();
-                     if (textError) {
-                        detailedMessage += ` - ${textError}`;
-                     }
+                } catch (textReadError) {
+                     console.error("Could not read error response text:", textReadError);
                 } finally {
                     // Add specific checks for common errors
                     if (response.status === 400) {
@@ -411,7 +426,7 @@ export default function VisionPage() {
                                              <p className="text-sm">{message.text}</p>
                                          ) : (
                                              // Show skeleton only for the latest AI message while loading
-                                             message.sender === 'ai' && isLoading && messages[messages.length - 1]?.id === message.id && (
+                                             message.sender === 'ai' && isLoading && messages.length > 0 && messages[messages.length - 1]?.id === message.id && (
                                                 <div className="space-y-2">
                                                     <Skeleton className="h-4 w-[80%]" />
                                                     <Skeleton className="h-4 w-[60%]" />
@@ -425,9 +440,9 @@ export default function VisionPage() {
                         ))}
                         {/* Placeholder when no messages */}
                         {messages.length === 0 && !isLoading && (
-                            <p className="text-sm text-muted-foreground text-center p-4">
-                                Activate a source (Camera, Screen, or Audio) or start chatting below.
-                            </p>
+                             <p className="text-sm text-muted-foreground text-center p-4">
+                                {apiKey ? 'Chat with Gemini or activate a source.' : 'Enter your Gemini API key to start chatting.'}
+                             </p>
                         )}
                         {/* Div to mark the end of messages for scrolling */}
                         <div ref={messagesEndRef} />
@@ -444,9 +459,9 @@ export default function VisionPage() {
                         onChange={(e) => setInputValue(e.target.value)}
                         onKeyDown={handleKeyDown}
                         className="flex-grow"
-                        disabled={isLoading} // Disable input while AI is responding
+                        disabled={isLoading || !apiKey} // Disable if loading or no API key
                     />
-                    <Button onClick={() => handleSendMessage(inputValue)} disabled={isLoading || (!inputValue.trim() && messages.length === 0)}>
+                    <Button onClick={() => handleSendMessage(inputValue)} disabled={isLoading || !apiKey || (!inputValue.trim() && messages.length === 0)}>
                         {isLoading ? <Skeleton className="h-5 w-5" /> : "Send"}
                     </Button>
                 </div>
