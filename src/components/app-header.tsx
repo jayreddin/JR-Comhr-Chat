@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -19,6 +18,15 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs";
 import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuGroup,
+    DropdownMenuLabel,
+    DropdownMenuRadioGroup,
+    DropdownMenuRadioItem,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
     Tooltip,
     TooltipContent,
     TooltipProvider,
@@ -29,6 +37,7 @@ import {
     ChevronDown, MessageSquare, Eye, Mic, Image as ImageIcon, MoreHorizontal, Home, Settings, LayoutGrid, LogIn, LogOut, User, X
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 // Define Puter types locally to avoid TS errors if library isn't loaded server-side
 declare global {
@@ -57,6 +66,48 @@ const navItems: NavItem[] = [
   { name: "More", href: "/more", icon: MoreHorizontal },
 ];
 
+// AI Model Definitions
+const modelProviders = [
+  {
+    provider: "OpenAI",
+    models: [
+      "gpt-4o-mini", "gpt-4o", "o1", "o1-mini", "o1-pro", "o3", "o3-mini", "o4-mini",
+      "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano", "gpt-4.5-preview",
+    ],
+    defaultModel: "gpt-4o-mini",
+  },
+  {
+    provider: "Anthropic",
+    models: ["claude-3-7-sonnet", "claude-3-5-sonnet"],
+  },
+  {
+    provider: "DeepSeek",
+    models: ["deepseek-chat", "deepseek-reasoner"],
+  },
+  {
+    provider: "Gemini",
+    models: ["gemini-2.0-flash", "gemini-1.5-flash", "google/gemma-2-27b-it"],
+  },
+  {
+    provider: "Meta",
+    models: [
+      "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+      "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
+      "meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo",
+    ],
+  },
+  {
+    provider: "Mistral",
+    models: ["mistral-large-latest", "pixtral-large-latest", "codestral-latest"],
+  },
+  {
+    provider: "XAI",
+    models: ["grok-beta"],
+  },
+];
+
+const defaultModel = modelProviders.find(p => p.defaultModel)?.defaultModel || modelProviders[0].models[0];
+
 interface AppHeaderProps {
   currentPageName?: string; // Optional prop for current page name override
 }
@@ -70,6 +121,7 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
   const [puterLoaded, setPuterLoaded] = useState<boolean>(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isPageSwitcherOpen, setIsPageSwitcherOpen] = useState(false);
+  const [selectedModel, setSelectedModel] = useState<string>(defaultModel);
 
   const checkAuthStatus = useCallback(async () => {
     if (typeof window !== 'undefined' && window.puter) {
@@ -117,17 +169,33 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
       return;
     }
     try {
-      // This call correctly initiates the Puter auth flow (usually via popup)
-      await window.puter.auth.signIn();
-      // Re-check status immediately after potential sign-in
-      await checkAuthStatus();
-      // Conditional toast based on updated status, although checkAuthStatus handles state
-      // setTimeout(async () => {
-      //    const stillSignedIn = await window.puter.auth.isSignedIn();
-      //    if (stillSignedIn) {
-      //      toast({ title: "Signed In", description: "Successfully signed in." });
-      //    }
-      // }, 500); // Short delay to allow state update
+        // Attempt to use puter.ui.authenticateWithPuter first for better mobile UX
+        if (window.puter.ui && window.puter.ui.authenticateWithPuter) {
+             try {
+                // This method often provides a better iframe-like experience on mobile
+                await window.puter.ui.authenticateWithPuter();
+                await checkAuthStatus(); // Re-check status after authentication attempt
+             } catch(authUiError) {
+                // If authenticateWithPuter fails or is cancelled, fall back to signIn
+                console.warn("authenticateWithPuter failed or cancelled, falling back to auth.signIn:", authUiError);
+                 if (authUiError instanceof Error && authUiError.message !== "User cancelled the dialog.") {
+                     await window.puter.auth.signIn();
+                     await checkAuthStatus();
+                 } else if (!(authUiError instanceof Error) && typeof authUiError === 'string' && authUiError.includes("cancelled")) {
+                     // Do nothing if specifically cancelled
+                 } else {
+                    // Re-throw unexpected errors from authenticateWithPuter
+                    // throw authUiError; // Or handle differently
+                     await window.puter.auth.signIn(); // Try signIn anyway
+                     await checkAuthStatus();
+                 }
+             }
+        } else {
+            // Fallback if authenticateWithPuter is not available
+            await window.puter.auth.signIn();
+            await checkAuthStatus();
+        }
+
     } catch (error) {
       console.error("Puter sign in error:", error);
       // The promise rejects if the user cancels the dialog.
@@ -165,7 +233,9 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
     setIsPageSwitcherOpen(false); // Close dialog on navigation
   };
 
+  // Determine the title to display (or dropdown for Chat page)
   const pageTitle = currentPageName || activePage?.name || "JR Comhrá AI";
+  const isChatPage = pathname.startsWith('/chat');
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -193,12 +263,39 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
           )}
         </div>
 
-        {/* Center: App Title */}
-        <Link href="/" className="flex items-center">
-            <h1 className="text-lg font-semibold text-primary hover:text-accent transition-colors">
-                {pageTitle}
-            </h1>
-        </Link>
+        {/* Center: App Title or Model Selector */}
+        <div className="flex items-center">
+          {isChatPage ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" className="text-lg font-semibold text-primary hover:text-accent transition-colors px-2">
+                  {selectedModel}
+                  <ChevronDown className="ml-2 h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="w-64 max-h-96 overflow-y-auto">
+                 <DropdownMenuRadioGroup value={selectedModel} onValueChange={setSelectedModel}>
+                    {modelProviders.map(provider => (
+                        <DropdownMenuGroup key={provider.provider}>
+                        <DropdownMenuLabel>{provider.provider}</DropdownMenuLabel>
+                        {provider.models.map(model => (
+                            <DropdownMenuRadioItem key={model} value={model}>
+                            {model}
+                            </DropdownMenuRadioItem>
+                        ))}
+                        </DropdownMenuGroup>
+                    ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <Link href="/" className="flex items-center">
+                <h1 className="text-lg font-semibold text-primary hover:text-accent transition-colors">
+                    {pageTitle}
+                </h1>
+            </Link>
+          )}
+        </div>
 
 
         {/* Right side: Page Switcher & Settings */}
@@ -296,7 +393,7 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
                         </CardHeader>
                         <CardContent className="space-y-4">
                             <p>Select models, adjust temperature, etc.</p>
-                            {/* Add model settings components here */}
+                             {/* Add model settings components here - Could link to chat page dropdown? */}
                         </CardContent>
                         </Card>
                     </TabsContent>
@@ -359,7 +456,3 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
     </header>
   );
 }
-
-// Re-added Card components used within the Settings Dialog
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-

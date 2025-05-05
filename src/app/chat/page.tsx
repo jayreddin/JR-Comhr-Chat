@@ -3,6 +3,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"; // Import ScrollArea f
 
 export default function ChatPage() {
   return (
+    // Pass currentPageName="Chat" to PageLayout so AppHeader knows to show the model selector
     <PageLayout currentPageName="Chat">
       {/* Main container for the chat display */}
       <div className="flex flex-col h-full flex-grow overflow-hidden">
