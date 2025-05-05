@@ -574,7 +574,7 @@ export function Footer({ onSendMessage }: FooterProps) {
                                         </TabsContent>
                                      </Tabs>
                                 </div> {/* End scrollable area */}
-                                <DialogFooter className="mt-4 pt-4 border-t sticky bottom-0 bg-background py-4"> {/* Make footer sticky */}
+                                <DialogFooter className="mt-4 pt-4 border-t justify-center sm:justify-center"> {/* Added justify-center */}
                                     <DialogClose asChild>
                                         <Button variant="outline">Cancel</Button>
                                     </DialogClose>
@@ -733,5 +733,3 @@ function ModelSelectionBox({ title, providers, activeModels, onToggle, onSelectA
         </Card>
     );
 }
-
-    
