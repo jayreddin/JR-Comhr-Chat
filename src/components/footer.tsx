@@ -497,7 +497,7 @@ export function Footer({ onSendMessage }: FooterProps) {
                                     <Upload className="h-5 w-5 text-muted-foreground" />
                                 </Button>
                             </DialogTrigger>
-                            <DialogContent className="sm:max-w-[425px]" align="center"> {/* Optional: Adjust max width if needed */}
+                            <DialogContent className="sm:max-w-[425px]"> {/* Removed align="center" as it's default */}
                                 <DialogHeader>
                                     <DialogTitle>Upload File</DialogTitle>
                                 </DialogHeader>
@@ -529,7 +529,7 @@ export function Footer({ onSendMessage }: FooterProps) {
                                     <Settings className="h-5 w-5 text-muted-foreground" />
                                 </Button>
                              </DialogTrigger>
-                             <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col" align="center">
+                             <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col"> {/* Removed align="center" */}
                                 <DialogHeader>
                                     <DialogTitle>Chat Settings</DialogTitle>
                                 </DialogHeader>
@@ -583,7 +583,7 @@ export function Footer({ onSendMessage }: FooterProps) {
                                         </TabsContent>
                                         <TabsContent value="models">
                                             <Card>
-                                                 <CardContent className="space-y-4 pt-6"> {/* Added pt-6 */}
+                                                 <CardContent className="space-y-4 pt-6 scrollbar-hide"> {/* Added pt-6 and scrollbar-hide */}
                                                     {/* Default Models Box */}
                                                     <ModelSelectionBox
                                                         title="Default Models"
@@ -617,7 +617,7 @@ export function Footer({ onSendMessage }: FooterProps) {
                                      </Tabs>
                                 </div> {/* End scrollable area */}
                                 {/* Dialog Footer - Placed AFTER the scrollable content */}
-                                <DialogFooter className="mt-auto pt-4 border-t bg-background justify-center"> {/* Removed sticky, bottom-0. Use mt-auto */}
+                                <DialogFooter className="mt-auto pt-4 border-t bg-background justify-center sm:justify-center"> {/* Ensure it's at the bottom */}
                                     <DialogClose asChild>
                                         <Button variant="outline">Cancel</Button>
                                     </DialogClose>
@@ -753,7 +753,8 @@ function ModelSelectionBox({ title, providers, activeModels, onToggle, onSelectA
                             {providers.map(provider => (
                                 <div key={provider.provider}>
                                     <h4 className="text-sm font-medium mb-1">{provider.provider}</h4>
-                                    <div className="grid grid-cols-2 gap-2">
+                                    {/* Change grid to flex column */}
+                                    <div className="flex flex-col space-y-1">
                                         {provider.models.map(model => (
                                             <div key={model} className="flex items-center space-x-2">
                                                 <Checkbox
@@ -776,4 +777,3 @@ function ModelSelectionBox({ title, providers, activeModels, onToggle, onSelectA
         </Card>
     );
 }
-
