@@ -30,7 +30,7 @@ import {
     TabsTrigger,
 } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Mic, Send, Paperclip, Square, PlusCircle, History, Upload, Settings, X, Minimize2 } from 'lucide-react'; // Added new icons
+import { Mic, Send, Paperclip, Square, PlusCircle, History, Upload, Settings, X, Minimize2, Loader2 } from 'lucide-react'; // Added Loader2
 import { toast } from "@/hooks/use-toast"; // Import toast for notifications
 import { cn } from '@/lib/utils'; // Import cn for conditional classes
 import { useAppState } from '@/context/app-state-context'; // Import context hook for model list potentially
@@ -52,8 +52,8 @@ const providerLinks = [
     { name: "OpenRouter", href: "https://openrouter.ai/" },
 ];
 
-// AI Model Definitions (Simplified for example - use the one from AppHeader if needed)
-// TODO: Replace with a centralized model list if available
+// AI Model Definitions (Used as initial state for active models)
+// TODO: Consider centralizing this list, maybe using AppStateContext
 const modelProviders = [
   {
     provider: "OpenAI",
@@ -111,9 +111,9 @@ const modelProviders = [
     models: ["x-ai/grok-3-beta"],
   },
 ];
-const openRouterModels = [
-    { provider: "OpenRouter", models: ["or-model-1", "or-model-2"] } // Placeholder OpenRouter models
-];
+
+// Structure for OpenRouter models (will be populated dynamically)
+const openRouterProvidersStructure = [{ provider: "OpenRouter", models: [] as string[] }];
 
 interface FooterProps {
   onSendMessage?: (message: string) => void; // Make prop optional
@@ -135,7 +135,9 @@ export function Footer({ onSendMessage }: FooterProps) {
     const [chatMode, setChatMode] = useState<'normal' | 'compact'>('normal');
     const [activeModels, setActiveModels] = useState<string[]>(modelProviders.flatMap(p => p.models)); // Initially all default models active
     const [openRouterActive, setOpenRouterActive] = useState(false);
-    const [activeOpenRouterModels, setActiveOpenRouterModels] = useState<string[]>([]);
+    const [availableOpenRouterModels, setAvailableOpenRouterModels] = useState<string[]>([]); // State for fetched OR models
+    const [isLoadingOpenRouterModels, setIsLoadingOpenRouterModels] = useState(false); // Loading state for OR fetch
+    const [activeOpenRouterModels, setActiveOpenRouterModels] = useState<string[]>([]); // Selected OR models
     const [isChatSettingsOpen, setIsChatSettingsOpen] = useState(false);
     const [isHistoryOpen, setIsHistoryOpen] = useState(false);
     const [isFileUploadOpen, setIsFileUploadOpen] = useState(false);
@@ -383,7 +385,15 @@ export function Footer({ onSendMessage }: FooterProps) {
 
         // 2. Save settings to local storage
         try {
-            localStorage.setItem('chatSettings', JSON.stringify({ theme, textSize, chatMode, activeModels, openRouterActive, activeOpenRouterModels }));
+            localStorage.setItem('chatSettings', JSON.stringify({
+                theme,
+                textSize,
+                chatMode,
+                activeModels,
+                openRouterActive,
+                activeOpenRouterModels,
+                // Note: We don't save the full list of available OR models, just the active ones
+            }));
             setIsChatSettingsOpen(false); // Close dialog
             toast({ title: "Settings Saved", description: "Chat settings have been updated." });
         } catch (e) {
@@ -403,15 +413,15 @@ export function Footer({ onSendMessage }: FooterProps) {
                 setTextSize(parsedSettings.textSize || 14);
                 setChatMode(parsedSettings.chatMode || 'normal');
                 setActiveModels(parsedSettings.activeModels || modelProviders.flatMap(p => p.models));
-                setOpenRouterActive(parsedSettings.openRouterActive || false);
+                // Set activeOpenRouterModels before setting openRouterActive to avoid race conditions
                 setActiveOpenRouterModels(parsedSettings.activeOpenRouterModels || []);
+                setOpenRouterActive(parsedSettings.openRouterActive || false);
 
                  // Apply loaded settings immediately
                 document.documentElement.classList.toggle('dark', parsedSettings.theme === 'dark');
                 document.documentElement.style.setProperty('--chat-text-size', `${parsedSettings.textSize || 14}px`);
                  // Apply chat mode if needed
                  // document.body.dataset.chatMode = parsedSettings.chatMode || 'normal';
-
 
             } catch (e) {
                 console.error("Failed to parse saved chat settings", e);
@@ -425,6 +435,37 @@ export function Footer({ onSendMessage }: FooterProps) {
         ]);
     }, []);
 
+
+     // Fetch OpenRouter models when the switch is activated
+    useEffect(() => {
+        if (openRouterActive && availableOpenRouterModels.length === 0 && !isLoadingOpenRouterModels) {
+            const fetchOpenRouterModels = async () => {
+                setIsLoadingOpenRouterModels(true);
+                try {
+                    const response = await fetch('https://openrouter.ai/api/v1/models');
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    const data = await response.json();
+                    // Extract model IDs from the 'data' array
+                    const modelIds = data?.data?.map((model: any) => model.id) || [];
+                    setAvailableOpenRouterModels(modelIds);
+                    console.log("Fetched OpenRouter Models:", modelIds);
+                } catch (error) {
+                    console.error("Failed to fetch OpenRouter models:", error);
+                    toast({ variant: "destructive", title: "Fetch Error", description: "Could not load OpenRouter models. Please try again later." });
+                    setOpenRouterActive(false); // Turn switch off on error
+                } finally {
+                    setIsLoadingOpenRouterModels(false);
+                }
+            };
+            fetchOpenRouterModels();
+        } else if (!openRouterActive) {
+             // Optional: Clear available models when switch is off? Or keep them cached?
+            // setAvailableOpenRouterModels([]); // Uncomment to clear if desired
+        }
+    }, [openRouterActive, availableOpenRouterModels.length, isLoadingOpenRouterModels]); // Depend on activation and loading state
+
      // Model Selection Handlers
     const handleModelToggle = (modelName: string, providerType: 'default' | 'openrouter') => {
         const isActive = providerType === 'default' ? activeModels.includes(modelName) : activeOpenRouterModels.includes(modelName);
@@ -436,7 +477,9 @@ export function Footer({ onSendMessage }: FooterProps) {
     };
 
     const handleSelectAllModels = (providerType: 'default' | 'openrouter') => {
-        const allModels = (providerType === 'default' ? modelProviders : openRouterModels).flatMap(p => p.models);
+        const allModels = providerType === 'default'
+            ? modelProviders.flatMap(p => p.models)
+            : availableOpenRouterModels; // Use fetched OR models
         const setActiveFunc = providerType === 'default' ? setActiveModels : setActiveOpenRouterModels;
         setActiveFunc(allModels);
     };
@@ -596,21 +639,39 @@ export function Footer({ onSendMessage }: FooterProps) {
 
                                                     {/* OpenRouter Activation */}
                                                     <div className="flex items-center space-x-2 pt-4 border-t">
-                                                        <Switch id="openrouter-switch" checked={openRouterActive} onCheckedChange={setOpenRouterActive} />
-                                                        <Label htmlFor="openrouter-switch">Activate OpenRouter Models</Label>
+                                                        <Switch
+                                                           id="openrouter-switch"
+                                                           checked={openRouterActive}
+                                                           onCheckedChange={setOpenRouterActive}
+                                                           disabled={isLoadingOpenRouterModels} // Disable while loading
+                                                        />
+                                                         <Label htmlFor="openrouter-switch" className={cn(isLoadingOpenRouterModels && "opacity-50")}>
+                                                            Activate OpenRouter Models {isLoadingOpenRouterModels && <Loader2 className="h-4 w-4 animate-spin inline ml-1" />}
+                                                        </Label>
                                                     </div>
 
-                                                    {/* OpenRouter Models Box (Conditional) */}
-                                                    {openRouterActive && (
-                                                        <ModelSelectionBox
-                                                            title="OpenRouter Models"
-                                                            providers={openRouterModels} // Use the placeholder list
-                                                            activeModels={activeOpenRouterModels}
-                                                            onToggle={(model) => handleModelToggle(model, 'openrouter')}
-                                                            onSelectAll={() => handleSelectAllModels('openrouter')}
-                                                            onDeselectAll={() => handleDeselectAllModels('openrouter')}
-                                                        />
-                                                    )}
+                                                     {/* OpenRouter Models Box (Conditional) */}
+                                                     {openRouterActive && (
+                                                        <>
+                                                            {isLoadingOpenRouterModels ? (
+                                                                <div className="flex justify-center items-center h-48 border rounded-md">
+                                                                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                                                                </div>
+                                                            ) : availableOpenRouterModels.length > 0 ? (
+                                                                <ModelSelectionBox
+                                                                    title="OpenRouter Models"
+                                                                    // Use the fetched models, grouped under "OpenRouter"
+                                                                    providers={[{ provider: "OpenRouter", models: availableOpenRouterModels }]}
+                                                                    activeModels={activeOpenRouterModels}
+                                                                    onToggle={(model) => handleModelToggle(model, 'openrouter')}
+                                                                    onSelectAll={() => handleSelectAllModels('openrouter')}
+                                                                    onDeselectAll={() => handleDeselectAllModels('openrouter')}
+                                                                />
+                                                            ) : (
+                                                                 <p className="text-sm text-muted-foreground text-center py-4">No OpenRouter models loaded or available.</p>
+                                                            )}
+                                                        </>
+                                                     )}
                                                  </CardContent>
                                             </Card>
                                         </TabsContent>
@@ -732,13 +793,18 @@ interface ModelSelectionBoxProps {
 function ModelSelectionBox({ title, providers, activeModels, onToggle, onSelectAll, onDeselectAll }: ModelSelectionBoxProps) {
     const [isMinimized, setIsMinimized] = useState(false);
 
+    // Get the total number of models across all providers in this box
+    const totalModelsInBox = providers.reduce((acc, provider) => acc + provider.models.length, 0);
+    const allModelsSelected = activeModels.length >= totalModelsInBox && providers.every(p => p.models.every(m => activeModels.includes(m)));
+    const noModelsSelected = providers.every(p => p.models.every(m => !activeModels.includes(m)));
+
     return (
         <Card className={cn(isMinimized && "overflow-hidden")}> {/* Use overflow-hidden when minimized */}
             <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle className="text-base">{title}</CardTitle>
                 <div className="flex items-center space-x-1">
-                     <Button variant="ghost" size="sm" onClick={onSelectAll}>Select All</Button>
-                     <Button variant="ghost" size="sm" onClick={onDeselectAll}>Deselect All</Button>
+                     <Button variant="ghost" size="sm" onClick={onSelectAll} disabled={allModelsSelected}>Select All</Button>
+                     <Button variant="ghost" size="sm" onClick={onDeselectAll} disabled={noModelsSelected}>Deselect All</Button>
                     <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setIsMinimized(!isMinimized)}>
                         <Minimize2 className="h-4 w-4" />
                     </Button>
