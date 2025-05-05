@@ -165,6 +165,7 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
     if (typeof window !== 'undefined' && window.puter?.auth) {
       setPuterLoaded(true); // Mark as loaded if auth object is present
       try {
+        console.log("Checking Puter auth status..."); // Add log
         const signedIn = await window.puter.auth.isSignedIn();
         setIsSignedIn(signedIn);
         if (signedIn) {
@@ -184,7 +185,7 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
         // Optionally retry if Puter hasn't loaded yet
         if (!puterLoaded) {
              console.log("Puter not loaded yet, retrying auth check...");
-            setTimeout(checkAuthStatus, 300); // Slightly increased delay
+            setTimeout(checkAuthStatus, 300); // Retry delay
         } else {
              console.log("Puter loaded but auth methods not available (or not on client).");
         }
@@ -208,65 +209,59 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
       return;
     }
 
-    console.log("Attempting sign in..."); // Add log
+    console.log("Attempting sign in...");
 
     try {
-        // Check if puter.ui.authenticateWithPuter exists and try it first
+        // Prefer puter.ui.authenticateWithPuter as it's designed for better UI integration, especially on mobile
         if (window.puter.ui && window.puter.ui.authenticateWithPuter) {
-             console.log("Trying puter.ui.authenticateWithPuter()..."); // Add log
+             console.log("Trying puter.ui.authenticateWithPuter()...");
              try {
-                // Authenticate - this might resolve immediately or after user interaction
                  await window.puter.ui.authenticateWithPuter();
-                 console.log("authenticateWithPuter completed (or cancelled)."); // Add log
-                 // Wait a short moment for the auth state to potentially update internally
-                 await new Promise(resolve => setTimeout(resolve, 100));
-                 // Re-check status regardless to update UI state accurately.
+                 console.log("authenticateWithPuter completed (or cancelled). Waiting to check status...");
+                 // Increase delay slightly to give mobile browsers more time after potential popup closure
+                 await new Promise(resolve => setTimeout(resolve, 500));
+                 console.log("Re-checking auth status after authenticateWithPuter attempt.");
                  await checkAuthStatus();
-                 return; // Exit after attempting this method
+                 return;
              } catch(authUiError) {
-                console.warn("puter.ui.authenticateWithPuter() failed or was cancelled:", authUiError); // Add log
-                 // Check if it was *not* a user cancellation before falling back
+                console.warn("puter.ui.authenticateWithPuter() failed or was cancelled:", authUiError);
                  if (authUiError instanceof Error && authUiError.message.toLowerCase().includes("cancel")) {
-                     console.log("User cancelled authenticateWithPuter dialog."); // Add log
-                     // Don't fall back if user explicitly cancelled
-                     // Wait a short moment before checking status
-                     await new Promise(resolve => setTimeout(resolve, 100));
-                     await checkAuthStatus(); // Still check status in case something changed unexpectedly
+                     console.log("User cancelled authenticateWithPuter dialog.");
+                     await new Promise(resolve => setTimeout(resolve, 100)); // Short delay before check
+                     await checkAuthStatus();
                      return;
                  } else {
-                     // Fallback to signIn for other errors or if the method failed unexpectedly
-                     console.log("Falling back to puter.auth.signIn() due to authenticateWithPuter error."); // Add log
+                     console.log("Falling back to puter.auth.signIn() due to authenticateWithPuter error.");
                      // Proceed to the signIn block below
                  }
              }
         } else {
-             console.log("puter.ui.authenticateWithPuter() not found, using puter.auth.signIn()..."); // Add log
+             console.log("puter.ui.authenticateWithPuter() not found, using puter.auth.signIn()...");
         }
 
-        // Fallback or primary method: puter.auth.signIn()
+        // Fallback or primary method if authenticateWithPuter isn't available or failed unexpectedly
         if (window.puter.auth && window.puter.auth.signIn) {
             await window.puter.auth.signIn();
-            console.log("puter.auth.signIn() completed (or cancelled)."); // Add log
-             // signIn resolves even on cancellation, so always check status after.
-            // Wait a short moment for auth state update
-            await new Promise(resolve => setTimeout(resolve, 100));
+            console.log("puter.auth.signIn() completed (or cancelled). Waiting to check status...");
+            // Increase delay slightly for mobile
+            await new Promise(resolve => setTimeout(resolve, 500));
+            console.log("Re-checking auth status after signIn attempt.");
             await checkAuthStatus();
         } else {
-            console.error("Puter auth.signIn method not found!"); // Add log
+            console.error("Puter auth.signIn method not found!");
             toast({ variant: "destructive", title: "Error", description: "Sign in function not available." });
         }
 
     } catch (error) {
-      // Catch errors primarily from the outer try block (less likely now)
-      console.error("General sign in error caught:", error); // Add log
-      // Handle potential errors (though cancellations are usually handled above)
+      console.error("General sign in error caught:", error);
       if (error instanceof Error && !error.message.toLowerCase().includes("cancel")) {
          toast({ variant: "destructive", title: "Sign In Failed", description: "An error occurred during sign in. Please try again." });
       } else if (!(error instanceof Error)) {
           toast({ variant: "destructive", title: "Sign In Failed", description: "An unexpected error occurred during sign in." });
       }
-      // Ensure status is checked even on error after a short delay
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // Ensure status is checked even on error after a delay
+      await new Promise(resolve => setTimeout(resolve, 500));
+      console.log("Re-checking auth status after general sign-in error.");
       await checkAuthStatus();
     }
   };
@@ -279,10 +274,12 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
       return;
     }
     try {
+      console.log("Attempting sign out..."); // Add log
       await window.puter.auth.signOut();
       setIsSignedIn(false);
       setUsername(null);
       toast({ title: "Signed Out", description: "Successfully signed out." });
+      console.log("Sign out successful."); // Add log
     } catch (error) {
       console.error("Puter sign out error:", error);
       toast({ variant: "destructive", title: "Sign Out Failed", description: "An error occurred during sign out." });
@@ -466,13 +463,11 @@ export function AppHeader({ currentPageName }: AppHeaderProps) {
                     <TabsContent value="models">
                         <Card>
                         <CardHeader>
-                            <CardTitle>Model Settings</CardTitle>
-                            <CardDescription>Configure AI model parameters.</CardDescription>
+                            {/* Removed Title/Description from here */}
                         </CardHeader>
-                        <CardContent className="space-y-4">
-                            <p>Select models, adjust temperature, etc.</p>
-                             {/* Could potentially display the model dropdown here too */}
-                             {/* Or add other model-specific settings */}
+                        <CardContent className="space-y-4 pt-6 scrollbar-hide">
+                            {/* Model selection UI moved to Footer */}
+                            <p className="text-sm text-muted-foreground">Model selection is available in the chat settings (cog icon) in the footer.</p>
                         </CardContent>
                         </Card>
                     </TabsContent>

@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "fetch": {
+      "command": "node",
+      "args": ["./fetch-mcp/dist/index.js"],
+      "env": {
+        "OPENWEATHER_API_KEY": "51e01c7aa54fcf760ed94603dd729d36"
+      },
+      "disabled": false,
+      "autoApprove": []
+    },
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp@latest"],
+      "disabled": false,
+      "autoApprove": []
+    }
+  }
+}
